@@ -1,7 +1,7 @@
 
-# ZMQTOTAK
+# SniffleToTAK
 
-ZMQTOTAK is a proxy tool that bridges the gap between the Sniffle Bluetooth 5 long range extended sniffing and the TAK (Team Awareness Kit) system. This tool allows users to utilize a Sniffle compatible dongle to detect Bluetooth 5 long range extended packets and relay them to TAK servers or multicast them on a network for ATAK (Android Team Awareness Kit) devices.
+SniffleToTAK is a proxy tool that bridges the gap between the Sniffle Bluetooth 5 long range extended sniffing and the TAK (Team Awareness Kit) system. This tool allows users to utilize a Sniffle compatible dongle to detect Bluetooth 5 long range extended packets and relay them to TAK servers or multicast them on a network for ATAK (Android Team Awareness Kit) devices.
 
 ## Features
 
@@ -33,51 +33,51 @@ python3 Sniffle/python_cli/sniff_receiver.py -l -e -z --zmqhost 0.0.0.0 --zmqpor
 
 This command configures the Sniffle dongle to look for Bluetooth 5 long range extended packets and forwards them via ZeroMQ (ZMQ).
 
-### Start the ZMQTOTAK Proxy with the Correct ZMQ Details
+### Start the SniffleToTAK Proxy with the Correct ZMQ Details
 
 #### Without TAK Server Information (Multicast Only)
 
 ```sh
-python3 ZMQTOTAK.py --zmq-host 0.0.0.0 --zmq-port 12345
+python3 sniffletotak.py --zmq-host 0.0.0.0 --zmq-port 12345
 ```
 
 #### With TAK Server Information
 
 ```sh
-python3 ZMQTOTAK.py --zmq-host 0.0.0.0 --zmq-port 12345 --tak-host <tak_host> --tak-port <tak_port>
+python3 sniffletotak.py --zmq-host 0.0.0.0 --zmq-port 12345 --tak-host <tak_host> --tak-port <tak_port>
 ```
 
 #### Enable Debug Logging
 
 ```sh
-python3 ZMQTOTAK.py --zmq-host 0.0.0.0 --zmq-port 12345 -d
+python3 sniffletotak.py --zmq-host 0.0.0.0 --zmq-port 12345 -d
 ```
 
 Replace `<tak_host>` and `<tak_port>` with the appropriate values for your setup.
 
 ### Verify Multicast Reception on ATAK
 
-Ensure that your ATAK device is connected to the same network as the machine running ZMQTOTAK. If configured correctly, ATAK should receive the multicast CoT messages and display the drone information on the map.
+Ensure that your ATAK device is connected to the same network as the machine running SniffleToTAK. If configured correctly, ATAK should receive the multicast CoT messages and display the drone information on the map.
 
 ## How It Works
 
 1. The Sniffle compatible dongle captures Bluetooth 5 long range extended packets.
 2. The captured packets are sent to the Sniffle receiver script which forwards them via ZeroMQ (ZMQ).
-3. The ZMQTOTAK proxy receives the ZMQ messages and translates them into CoT format.
+3. The SniffleToTAK proxy receives the ZMQ messages and translates them into CoT format.
 4. The CoT messages are sent to a TAK server or multicast to the network for ATAK devices to detect and monitor drones.
 
 ## Example Command
 
-To start the ZMQTOTAK application with ZMQ server running on `127.0.0.1` port `12345`, sending multicast to ATAK:
+To start the SniffleToTAK application with ZMQ server running on `127.0.0.1` port `12345`, sending multicast to ATAK:
 
 ```sh
-python3 ZMQTOTAK.py --zmq-host 127.0.0.1 --zmq-port 12345
+python3 sniffletotak.py --zmq-host 127.0.0.1 --zmq-port 12345
 ```
 
 ## Troubleshooting
 
 - **No Data on ATAK**:
-  - Ensure the ATAK device is on the same network as the ZMQTOTAK machine.
+  - Ensure the ATAK device is on the same network as the SniffleToTAK machine.
   - Verify that multicast traffic is allowed on your network.
   - Check if the correct ZMQ host and port are used.
 
