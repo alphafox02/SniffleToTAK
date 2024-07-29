@@ -42,6 +42,7 @@ import cryptography.hazmat.primitives.serialization.pkcs12
 logger = logging.getLogger(__name__)
 
 class Drone:
+    """A class representing a drone and its telemetry data."""
     def __init__(self, id: str, lat: float, lon: float, speed: float, vspeed: float, alt: float, height: float, pilot_lat: float, pilot_lon: float, description: str):
         self.id = id
         self.lat = lat
@@ -57,6 +58,7 @@ class Drone:
         self.last_update_time = time.time()  # Initialize last update time
 
     def to_cot_xml(self) -> bytes:
+        """Convert the drone's telemetry data to a Cursor-on-Target (CoT) XML message."""
         event = etree.Element('event')
         event.set('version', '2.0')
         event.set('uid', f"drone-{self.id}")
@@ -85,7 +87,8 @@ class Drone:
         precisionlocation.set('altsrc', 'gps')
 
         remarks = etree.SubElement(detail, 'remarks')
-        remarks.text = f"Description: {self.description}, Speed: {self.speed} m/s, VSpeed: {self.vspeed} m/s, Altitude: {self.alt} m, Height: {self.height} m, Pilot Lat: {self.pilot_lat}, Pilot Lon: {self.pilot_lon}"
+        remarks.text = (f"Description: {self.description}, Speed: {self.speed} m/s, VSpeed: {self.vspeed} m/s, "
+                        f"Altitude: {self.alt} m, Height: {self.height} m, Pilot Lat: {self.pilot_lat}, Pilot Lon: {self.pilot_lon}")
 
         color = etree.SubElement(detail, 'color')
         color.set('argb', '-256')
@@ -95,7 +98,9 @@ class Drone:
 
         return etree.tostring(event, pretty_print=True, xml_declaration=True, encoding='UTF-8')
 
+
 class TAKClient:
+    """A client for connecting to a TAK server using TLS and sending CoT messages."""
     def __init__(self, tak_host: str, tak_port: int, tak_tls_context: Optional[ssl.SSLContext]):
         self.tak_host = tak_host
         self.tak_port = tak_port
@@ -103,6 +108,7 @@ class TAKClient:
         self.sock = None
 
     def connect(self):
+        """Establish a connection to the TAK server."""
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             if self.tak_tls_context:
@@ -113,6 +119,7 @@ class TAKClient:
             logger.error(f"Error connecting to TAK server: {e}")
 
     def send(self, cot_xml: bytes):
+        """Send a CoT XML message to the TAK server."""
         try:
             if self.sock is None:
                 self.connect()
@@ -123,12 +130,15 @@ class TAKClient:
             self.sock = None  # Force reconnect on next send
 
     def close(self):
+        """Close the connection to the TAK server."""
         if self.sock:
             self.sock.close()
             self.sock = None
             logger.debug("Closed connection to TAK server")
 
+
 def send_to_tak_udp(cot_xml: bytes, tak_host: str, tak_port: int):
+    """Send a CoT XML message to the TAK server via UDP."""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.sendto(cot_xml, (tak_host, tak_port))
@@ -137,7 +147,9 @@ def send_to_tak_udp(cot_xml: bytes, tak_host: str, tak_port: int):
     except Exception as e:
         logger.error(f"Error sending to TAK server: {e}")
 
+
 def send_to_tak_udp_multicast(cot_xml: bytes, multicast_address: str, multicast_port: int):
+    """Send a CoT XML message to a multicast address via UDP."""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
@@ -147,13 +159,17 @@ def send_to_tak_udp_multicast(cot_xml: bytes, multicast_address: str, multicast_
     except Exception as e:
         logger.error(f"Error sending to multicast address: {e}")
 
+
 def parse_float(value: str) -> float:
+    """Parse a string to a float, ignoring any extraneous characters."""
     try:
         return float(value.split()[0])
     except (ValueError, AttributeError):
         return 0.0
 
+
 def zmq_to_cot(zmq_host, zmq_port, tak_host=None, tak_port=None, tak_tls_context=None, multicast_address=None, multicast_port=None, enable_multicast=False, rate_limit=1.0, cleanup_interval=60.0, drone_timeout=300.0):
+    """Convert ZMQ messages to CoT messages and send to a TAK server or multicast address."""
     context = zmq.Context()
     zmq_socket = context.socket(zmq.SUB)
     zmq_socket.connect(f"tcp://{zmq_host}:{zmq_port}")
@@ -166,6 +182,7 @@ def zmq_to_cot(zmq_host, zmq_port, tak_host=None, tak_port=None, tak_tls_context
         tak_client = TAKClient(tak_host, tak_port, tak_tls_context)
 
     def signal_handler(sig, frame):
+        """Handle signal interruptions for graceful shutdown."""
         print("Interrupted by user")
         zmq_socket.close()
         context.term()
@@ -248,6 +265,7 @@ def zmq_to_cot(zmq_host, zmq_port, tak_host=None, tak_port=None, tak_tls_context
                 logger.error(f"Error receiving or processing message: {e}")
     except KeyboardInterrupt:
         signal_handler(None, None)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ZMQ to CoT converter.")
