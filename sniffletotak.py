@@ -95,17 +95,38 @@ class Drone:
 
         return etree.tostring(event, pretty_print=True, xml_declaration=True, encoding='UTF-8')
 
-def send_to_tak_tcp(cot_xml: bytes, tak_host: str, tak_port: int, tak_tls_context: Optional[ssl.SSLContext]):
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        if tak_tls_context is not None:
-            sock = tak_tls_context.wrap_socket(sock)
-        sock.connect((tak_host, tak_port))
-        sock.send(cot_xml)
-        sock.close()
-        logger.debug(f"Sent CoT to TAK server: {cot_xml}")
-    except Exception as e:
-        logger.error(f"Error sending to TAK server: {e}")
+class TAKClient:
+    def __init__(self, tak_host: str, tak_port: int, tak_tls_context: Optional[ssl.SSLContext]):
+        self.tak_host = tak_host
+        self.tak_port = tak_port
+        self.tak_tls_context = tak_tls_context
+        self.sock = None
+
+    def connect(self):
+        try:
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            if self.tak_tls_context:
+                self.sock = self.tak_tls_context.wrap_socket(self.sock)
+            self.sock.connect((self.tak_host, self.tak_port))
+            logger.debug("Connected to TAK server")
+        except Exception as e:
+            logger.error(f"Error connecting to TAK server: {e}")
+
+    def send(self, cot_xml: bytes):
+        try:
+            if self.sock is None:
+                self.connect()
+            self.sock.send(cot_xml)
+            logger.debug(f"Sent CoT to TAK server: {cot_xml}")
+        except Exception as e:
+            logger.error(f"Error sending to TAK server: {e}")
+            self.sock = None  # Force reconnect on next send
+
+    def close(self):
+        if self.sock:
+            self.sock.close()
+            self.sock = None
+            logger.debug("Closed connection to TAK server")
 
 def send_to_tak_udp(cot_xml: bytes, tak_host: str, tak_port: int):
     try:
@@ -139,11 +160,17 @@ def zmq_to_cot(zmq_host, zmq_port, tak_host=None, tak_port=None, tak_tls_context
     zmq_socket.setsockopt_string(zmq.SUBSCRIBE, "")
 
     drones = {}
+    tak_client = None
+
+    if tak_host and tak_port and tak_tls_context:
+        tak_client = TAKClient(tak_host, tak_port, tak_tls_context)
 
     def signal_handler(sig, frame):
         print("Interrupted by user")
         zmq_socket.close()
         context.term()
+        if tak_client:
+            tak_client.close()
         print("Cleaned up ZMQ resources")
         sys.exit(0)
 
@@ -201,7 +228,8 @@ def zmq_to_cot(zmq_host, zmq_port, tak_host=None, tak_port=None, tak_tls_context
 
                         if tak_host and tak_port:
                             if tak_tls_context:
-                                send_to_tak_tcp(cot_xml, tak_host, tak_port, tak_tls_context)
+                                if tak_client:
+                                    tak_client.send(cot_xml)
                             else:
                                 send_to_tak_udp(cot_xml, tak_host, tak_port)
 
