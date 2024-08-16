@@ -31,6 +31,7 @@ import argparse
 import datetime
 import tempfile
 import time
+from collections import deque
 from typing import Optional
 
 import zmq
@@ -54,8 +55,18 @@ class Drone:
         self.pilot_lat = pilot_lat
         self.pilot_lon = pilot_lon
         self.description = description
-        self.last_sent_time = 0  # Initialize last sent time
-        self.last_update_time = time.time()  # Initialize last update time
+
+    def update(self, lat: float, lon: float, speed: float, vspeed: float, alt: float, height: float, pilot_lat: float, pilot_lon: float, description: str):
+        """Update the drone's telemetry data."""
+        self.lat = lat
+        self.lon = lon
+        self.speed = speed
+        self.vspeed = vspeed
+        self.alt = alt
+        self.height = height
+        self.pilot_lat = pilot_lat
+        self.pilot_lon = pilot_lon
+        self.description = description
 
     def to_cot_xml(self) -> bytes:
         """Convert the drone's telemetry data to a Cursor-on-Target (CoT) XML message."""
@@ -63,9 +74,9 @@ class Drone:
         event.set('version', '2.0')
         event.set('uid', f"drone-{self.id}")
         event.set('type', 'b-m-p-s-m')
-        event.set('time', datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.995Z'))
-        event.set('start', datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.995Z'))
-        event.set('stale', (datetime.datetime.utcnow() + datetime.timedelta(days=1)).strftime('%Y-%m-%dT%H:%M:%S.995Z'))
+        event.set('time', datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'))
+        event.set('start', datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'))
+        event.set('stale', (datetime.datetime.utcnow() + datetime.timedelta(minutes=10)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'))
         event.set('how', 'm-g')
 
         point = etree.SubElement(event, 'point')
@@ -168,18 +179,57 @@ def parse_float(value: str) -> float:
         return 0.0
 
 
-def zmq_to_cot(zmq_host, zmq_port, tak_host=None, tak_port=None, tak_tls_context=None, multicast_address=None, multicast_port=None, enable_multicast=False, rate_limit=1.0, cleanup_interval=60.0, drone_timeout=300.0):
-    """Convert ZMQ messages to CoT messages and send to a TAK server or multicast address."""
+class DroneManager:
+    def __init__(self, max_drones=30, rate_limit=1.0):
+        self.drones = deque(maxlen=max_drones)
+        self.drone_dict = {}
+        self.rate_limit = rate_limit
+        self.last_sent_time = time.time()
+
+    def update_or_add_drone(self, drone_id, drone_data):
+        if drone_id not in self.drone_dict:
+            if len(self.drones) >= self.drones.maxlen:
+                oldest_drone = self.drones.popleft()
+                del self.drone_dict[oldest_drone.id]
+            self.drones.append(drone_id)
+            self.drone_dict[drone_id] = drone_data
+        else:
+            self.drone_dict[drone_id].update(
+                lat=drone_data.lat,
+                lon=drone_data.lon,
+                speed=drone_data.speed,
+                vspeed=drone_data.vspeed,
+                alt=drone_data.alt,
+                height=drone_data.height,
+                pilot_lat=drone_data.pilot_lat,
+                pilot_lon=drone_data.pilot_lon,
+                description=drone_data.description
+            )
+
+    def send_updates(self, tak_client, tak_host, tak_port, enable_multicast, multicast_address, multicast_port):
+        if time.time() - self.last_sent_time >= self.rate_limit:
+            for drone_id in self.drones:
+                cot_xml = self.drone_dict[drone_id].to_cot_xml()
+
+                if tak_client:
+                    tak_client.send(cot_xml)
+                elif tak_host and tak_port:
+                    send_to_tak_udp(cot_xml, tak_host, tak_port)
+                
+                if enable_multicast and multicast_address and multicast_port:
+                    send_to_tak_udp_multicast(cot_xml, multicast_address, multicast_port)
+
+            self.last_sent_time = time.time()
+
+
+def zmq_to_cot(zmq_host, zmq_port, tak_host=None, tak_port=None, tak_tls_context=None, multicast_address=None, multicast_port=None, enable_multicast=False, rate_limit=1.0, max_drones=30):
     context = zmq.Context()
     zmq_socket = context.socket(zmq.SUB)
     zmq_socket.connect(f"tcp://{zmq_host}:{zmq_port}")
     zmq_socket.setsockopt_string(zmq.SUBSCRIBE, "")
 
-    drones = {}
-    tak_client = None
-
-    if tak_host and tak_port and tak_tls_context:
-        tak_client = TAKClient(tak_host, tak_port, tak_tls_context)
+    drone_manager = DroneManager(max_drones=max_drones, rate_limit=rate_limit)
+    tak_client = TAKClient(tak_host, tak_port, tak_tls_context) if tak_host and tak_port and tak_tls_context else None
 
     def signal_handler(sig, frame):
         """Handle signal interruptions for graceful shutdown."""
@@ -192,8 +242,6 @@ def zmq_to_cot(zmq_host, zmq_port, tak_host=None, tak_port=None, tak_tls_context
         sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
-
-    last_cleanup_time = time.time()
 
     try:
         while True:
@@ -210,10 +258,10 @@ def zmq_to_cot(zmq_host, zmq_port, tak_host=None, tak_port=None, tak_tls_context
                     if 'Location/Vector Message' in item:
                         drone_info['lat'] = parse_float(item['Location/Vector Message'].get('latitude', "0.0"))
                         drone_info['lon'] = parse_float(item['Location/Vector Message'].get('longitude', "0.0"))
-                        drone_info['speed'] = parse_float(item['Location/Vector Message'].get('speed', "0.0").split()[0])
-                        drone_info['vspeed'] = parse_float(item['Location/Vector Message'].get('vert_speed', "0.0").split()[0])
-                        drone_info['alt'] = parse_float(item['Location/Vector Message'].get('geodetic_altitude', "0.0").split()[0])
-                        drone_info['height'] = parse_float(item['Location/Vector Message'].get('height_agl', "0.0").split()[0])
+                        drone_info['speed'] = parse_float(item['Location/Vector Message'].get('speed', "0.0"))
+                        drone_info['vspeed'] = parse_float(item['Location/Vector Message'].get('vert_speed', "0.0"))
+                        drone_info['alt'] = parse_float(item['Location/Vector Message'].get('geodetic_altitude', "0.0"))
+                        drone_info['height'] = parse_float(item['Location/Vector Message'].get('height_agl', "0.0"))
                     if 'Self-ID Message' in item:
                         drone_info['description'] = item['Self-ID Message'].get('text', "")
                     if 'System Message' in item:
@@ -222,44 +270,21 @@ def zmq_to_cot(zmq_host, zmq_port, tak_host=None, tak_port=None, tak_tls_context
 
                 if 'id' in drone_info:
                     drone_id = drone_info['id']
-                    if drone_id not in drones:
-                        drones[drone_id] = Drone(
-                            id=drone_info['id'],
-                            lat=drone_info.get('lat', 0.0),
-                            lon=drone_info.get('lon', 0.0),
-                            speed=drone_info.get('speed', 0.0),
-                            vspeed=drone_info.get('vspeed', 0.0),
-                            alt=drone_info.get('alt', 0.0),
-                            height=drone_info.get('height', 0.0),
-                            pilot_lat=drone_info.get('pilot_lat', 0.0),
-                            pilot_lon=drone_info.get('pilot_lon', 0.0),
-                            description=drone_info.get('description', "")
-                        )
+                    drone = Drone(
+                        id=drone_info['id'],
+                        lat=drone_info.get('lat', 0.0),
+                        lon=drone_info.get('lon', 0.0),
+                        speed=drone_info.get('speed', 0.0),
+                        vspeed=drone_info.get('vspeed', 0.0),
+                        alt=drone_info.get('alt', 0.0),
+                        height=drone_info.get('height', 0.0),
+                        pilot_lat=drone_info.get('pilot_lat', 0.0),
+                        pilot_lon=drone_info.get('pilot_lon', 0.0),
+                        description=drone_info.get('description', "")
+                    )
+                    drone_manager.update_or_add_drone(drone_id, drone)
 
-                    drone = drones[drone_id]
-                    drone.last_update_time = time.time()
-                    current_time = time.time()
-                    if current_time - drone.last_sent_time >= rate_limit:
-                        drone.last_sent_time = current_time
-                        cot_xml = drone.to_cot_xml()
-
-                        if tak_host and tak_port:
-                            if tak_tls_context:
-                                if tak_client:
-                                    tak_client.send(cot_xml)
-                            else:
-                                send_to_tak_udp(cot_xml, tak_host, tak_port)
-
-                        if enable_multicast and multicast_address and multicast_port:
-                            send_to_tak_udp_multicast(cot_xml, multicast_address, multicast_port)
-
-                # Cleanup old drones
-                if time.time() - last_cleanup_time > cleanup_interval:
-                    current_time = time.time()
-                    drones_to_remove = [drone_id for drone_id, drone in drones.items() if current_time - drone.last_update_time > drone_timeout]
-                    for drone_id in drones_to_remove:
-                        del drones[drone_id]
-                    last_cleanup_time = current_time
+                drone_manager.send_updates(tak_client, tak_host, tak_port, enable_multicast, multicast_address, multicast_port)
 
             except Exception as e:
                 logger.error(f"Error receiving or processing message: {e}")
@@ -280,8 +305,7 @@ if __name__ == "__main__":
     parser.add_argument("--tak-multicast-port", type=int, default=6969, help="ATAK multicast port (optional)")
     parser.add_argument("--enable-multicast", action="store_true", help="Enable sending to multicast address")
     parser.add_argument("--rate-limit", type=float, default=1.0, help="Rate limit for sending CoT messages (seconds)")
-    parser.add_argument("--cleanup-interval", type=float, default=60.0, help="Interval for cleaning up old drones (seconds)")
-    parser.add_argument("--drone-timeout", type=float, default=300.0, help="Time after which a drone is considered old and removed (seconds)")
+    parser.add_argument("--max-drones", type=int, default=30, help="Maximum number of drones to track simultaneously")
     parser.add_argument("-d", "--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
@@ -329,4 +353,4 @@ if __name__ == "__main__":
             tak_tls_context.check_hostname = False
             tak_tls_context.verify_mode = ssl.VerifyMode.CERT_NONE
 
-    zmq_to_cot(args.zmq_host, args.zmq_port, args.tak_host, args.tak_port, tak_tls_context, args.tak_multicast_addr, args.tak_multicast_port, args.enable_multicast, args.rate_limit, args.cleanup_interval, args.drone_timeout)
+    zmq_to_cot(args.zmq_host, args.zmq_port, args.tak_host, args.tak_port, tak_tls_context, args.tak_multicast_addr, args.tak_multicast_port, args.enable_multicast, args.rate_limit, args.max_drones)
