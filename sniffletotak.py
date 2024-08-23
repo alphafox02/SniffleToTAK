@@ -43,7 +43,8 @@ import cryptography.hazmat.primitives.serialization.pkcs12
 logger = logging.getLogger(__name__)
 
 class Drone:
-    """A class representing a drone and its telemetry data."""
+    """Represents a drone and its telemetry data."""
+    
     def __init__(self, id: str, lat: float, lon: float, speed: float, vspeed: float, alt: float, height: float, pilot_lat: float, pilot_lon: float, description: str):
         self.id = id
         self.lat = lat
@@ -57,7 +58,7 @@ class Drone:
         self.description = description
 
     def update(self, lat: float, lon: float, speed: float, vspeed: float, alt: float, height: float, pilot_lat: float, pilot_lon: float, description: str):
-        """Update the drone's telemetry data."""
+        """Updates the drone's telemetry data."""
         self.lat = lat
         self.lon = lon
         self.speed = speed
@@ -69,7 +70,7 @@ class Drone:
         self.description = description
 
     def to_cot_xml(self) -> bytes:
-        """Convert the drone's telemetry data to a Cursor-on-Target (CoT) XML message."""
+        """Converts the drone's telemetry data to a Cursor-on-Target (CoT) XML message."""
         event = etree.Element('event')
         event.set('version', '2.0')
         event.set('uid', f"drone-{self.id}")
@@ -111,7 +112,8 @@ class Drone:
 
 
 class TAKClient:
-    """A client for connecting to a TAK server using TLS and sending CoT messages."""
+    """Client for connecting to a TAK server using TLS and sending CoT messages."""
+    
     def __init__(self, tak_host: str, tak_port: int, tak_tls_context: Optional[ssl.SSLContext]):
         self.tak_host = tak_host
         self.tak_port = tak_port
@@ -119,7 +121,7 @@ class TAKClient:
         self.sock = None
 
     def connect(self):
-        """Establish a connection to the TAK server."""
+        """Establishes a connection to the TAK server."""
         try:
             self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             if self.tak_tls_context:
@@ -128,9 +130,10 @@ class TAKClient:
             logger.debug("Connected to TAK server")
         except Exception as e:
             logger.error(f"Error connecting to TAK server: {e}")
+            raise
 
     def send(self, cot_xml: bytes):
-        """Send a CoT XML message to the TAK server."""
+        """Sends a CoT XML message to the TAK server."""
         try:
             if self.sock is None:
                 self.connect()
@@ -139,9 +142,10 @@ class TAKClient:
         except Exception as e:
             logger.error(f"Error sending to TAK server: {e}")
             self.sock = None  # Force reconnect on next send
+            raise
 
     def close(self):
-        """Close the connection to the TAK server."""
+        """Closes the connection to the TAK server."""
         if self.sock:
             self.sock.close()
             self.sock = None
@@ -149,7 +153,7 @@ class TAKClient:
 
 
 def send_to_tak_udp(cot_xml: bytes, tak_host: str, tak_port: int):
-    """Send a CoT XML message to the TAK server via UDP."""
+    """Sends a CoT XML message to the TAK server via UDP."""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.sendto(cot_xml, (tak_host, tak_port))
@@ -157,10 +161,11 @@ def send_to_tak_udp(cot_xml: bytes, tak_host: str, tak_port: int):
         logger.debug(f"Sent CoT to TAK server: {cot_xml}")
     except Exception as e:
         logger.error(f"Error sending to TAK server: {e}")
+        raise
 
 
 def send_to_tak_udp_multicast(cot_xml: bytes, multicast_address: str, multicast_port: int):
-    """Send a CoT XML message to a multicast address via UDP."""
+    """Sends a CoT XML message to a multicast address via UDP."""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
@@ -169,10 +174,11 @@ def send_to_tak_udp_multicast(cot_xml: bytes, multicast_address: str, multicast_
         logger.debug(f"Sent CoT to multicast address: {cot_xml}")
     except Exception as e:
         logger.error(f"Error sending to multicast address: {e}")
+        raise
 
 
 def parse_float(value: str) -> float:
-    """Parse a string to a float, ignoring any extraneous characters."""
+    """Parses a string to a float, ignoring any extraneous characters."""
     try:
         return float(value.split()[0])
     except (ValueError, AttributeError):
@@ -180,6 +186,8 @@ def parse_float(value: str) -> float:
 
 
 class DroneManager:
+    """Manages a collection of drones and handles their updates."""
+    
     def __init__(self, max_drones=30, rate_limit=1.0):
         self.drones = deque(maxlen=max_drones)
         self.drone_dict = {}
@@ -187,6 +195,7 @@ class DroneManager:
         self.last_sent_time = time.time()
 
     def update_or_add_drone(self, drone_id, drone_data):
+        """Updates an existing drone or adds a new one to the collection."""
         if drone_id not in self.drone_dict:
             if len(self.drones) >= self.drones.maxlen:
                 oldest_drone = self.drones.popleft()
@@ -206,7 +215,8 @@ class DroneManager:
                 description=drone_data.description
             )
 
-    def send_updates(self, tak_client, tak_host, tak_port, enable_multicast, multicast_address, multicast_port):
+    def send_updates(self, tak_client: Optional[TAKClient], tak_host: Optional[str], tak_port: Optional[int], enable_multicast: bool, multicast_address: Optional[str], multicast_port: Optional[int]):
+        """Sends updates to the TAK server or multicast address."""
         if time.time() - self.last_sent_time >= self.rate_limit:
             for drone_id in self.drones:
                 cot_xml = self.drone_dict[drone_id].to_cot_xml()
@@ -222,7 +232,9 @@ class DroneManager:
             self.last_sent_time = time.time()
 
 
-def zmq_to_cot(zmq_host, zmq_port, tak_host=None, tak_port=None, tak_tls_context=None, multicast_address=None, multicast_port=None, enable_multicast=False, rate_limit=1.0, max_drones=30):
+def zmq_to_cot(zmq_host: str, zmq_port: int, tak_host: Optional[str] = None, tak_port: Optional[int] = None, tak_tls_context: Optional[ssl.SSLContext] = None, multicast_address: Optional[str] = None, multicast_port: Optional[int] = None, enable_multicast: bool = False, rate_limit: float = 1.0, max_drones: int = 30):
+    """Main function to convert ZMQ messages to CoT and send to TAK server."""
+    
     context = zmq.Context()
     zmq_socket = context.socket(zmq.SUB)
     zmq_socket.connect(f"tcp://{zmq_host}:{zmq_port}")
@@ -232,7 +244,7 @@ def zmq_to_cot(zmq_host, zmq_port, tak_host=None, tak_port=None, tak_tls_context
     tak_client = TAKClient(tak_host, tak_port, tak_tls_context) if tak_host and tak_port and tak_tls_context else None
 
     def signal_handler(sig, frame):
-        """Handle signal interruptions for graceful shutdown."""
+        """Handles signal interruptions for graceful shutdown."""
         print("Interrupted by user")
         zmq_socket.close()
         context.term()
@@ -253,8 +265,18 @@ def zmq_to_cot(zmq_host, zmq_port, tak_host=None, tak_port=None, tak_tls_context
                 for item in message:
                     if 'Basic ID' in item:
                         id_type = item['Basic ID'].get('id_type')
-                        if id_type == 'Serial Number (ANSI/CTA-2063-A)':
+                        if id_type == 'Serial Number (ANSI/CTA-2063-A)' and 'id' not in drone_info:
                             drone_info['id'] = item['Basic ID'].get('id', 'unknown')
+                            logger.debug(f"Parsed Serial Number ID: {drone_info['id']}")
+                        elif id_type == 'CAA Assigned Registration ID' and 'id' not in drone_info:
+                            drone_info['id'] = item['Basic ID'].get('id', 'unknown')
+                            logger.debug(f"Parsed CAA Assigned ID: {drone_info['id']}")
+                    
+                    if 'id' in drone_info:
+                        if not drone_info['id'].startswith('drone-'):
+                            drone_info['id'] = f"drone-{drone_info['id']}"
+                        logger.debug(f"Ensured drone id with prefix: {drone_info['id']}")
+
                     if 'Location/Vector Message' in item:
                         drone_info['lat'] = parse_float(item['Location/Vector Message'].get('latitude', "0.0"))
                         drone_info['lon'] = parse_float(item['Location/Vector Message'].get('longitude', "0.0"))
@@ -262,8 +284,10 @@ def zmq_to_cot(zmq_host, zmq_port, tak_host=None, tak_port=None, tak_tls_context
                         drone_info['vspeed'] = parse_float(item['Location/Vector Message'].get('vert_speed', "0.0"))
                         drone_info['alt'] = parse_float(item['Location/Vector Message'].get('geodetic_altitude', "0.0"))
                         drone_info['height'] = parse_float(item['Location/Vector Message'].get('height_agl', "0.0"))
+
                     if 'Self-ID Message' in item:
                         drone_info['description'] = item['Self-ID Message'].get('text', "")
+
                     if 'System Message' in item:
                         drone_info['pilot_lat'] = parse_float(item['System Message'].get('latitude', "0.0"))
                         drone_info['pilot_lon'] = parse_float(item['System Message'].get('longitude', "0.0"))
@@ -310,6 +334,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
+    logger.info("Starting ZMQ to CoT converter with log level: %s", "DEBUG" if args.debug else "INFO")
 
     tak_tls_context = None
     if args.tak_tls_p12:
