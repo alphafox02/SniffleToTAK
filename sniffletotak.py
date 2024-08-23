@@ -353,7 +353,7 @@ if __name__ == "__main__":
     zmq_host = args.zmq_host if args.zmq_host else config_values.get("zmq_host", "127.0.0.1")
     zmq_port = args.zmq_port if args.zmq_port else int(config_values.get("zmq_port", 12345))
     tak_host = args.tak_host if args.tak_host else config_values.get("tak_host")
-    tak_port = args.tak_port if args.tak_port else int(config_values.get("tak_port")) if "tak_port" in config_values else None
+    tak_port = args.tak_port if args.tak_port else int(config_values.get("tak_port")) if config_values.get("tak_port", "").isdigit() else None
     tak_tls_p12 = args.tak_tls_p12 if args.tak_tls_p12 else config_values.get("tak_tls_p12")
     tak_tls_p12_pass = args.tak_tls_p12_pass if args.tak_tls_p12_pass else config_values.get("tak_tls_p12_pass")
     tak_tls_skip_verify = args.tak_tls_skip_verify if args.tak_tls_skip_verify else config_values.get("tak_tls_skip_verify", "False") == "True"
