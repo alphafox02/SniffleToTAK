@@ -249,10 +249,12 @@ def zmq_to_cot(zmq_host: str, zmq_port: int, zmq_status_port: int, tak_host: Opt
     telemetry_socket = context.socket(zmq.SUB)
     telemetry_socket.connect(f"tcp://{zmq_host}:{zmq_port}")
     telemetry_socket.setsockopt_string(zmq.SUBSCRIBE, "")
+    logger.debug(f"Connected to telemetry ZMQ socket at tcp://{zmq_host}:{zmq_port}")
 
     status_socket = context.socket(zmq.SUB)
     status_socket.connect(f"tcp://{zmq_host}:{zmq_status_port}")
     status_socket.setsockopt_string(zmq.SUBSCRIBE, "")
+    logger.debug(f"Connected to status ZMQ socket at tcp://{zmq_host}:{zmq_status_port}")
 
     drone_manager = DroneManager(max_drones=max_drones, rate_limit=rate_limit)
     tak_client = TAKClient(tak_host, tak_port, tak_tls_context) if tak_host and tak_port else None
@@ -278,6 +280,7 @@ def zmq_to_cot(zmq_host: str, zmq_port: int, zmq_status_port: int, tak_host: Opt
         while True:
             socks = dict(poller.poll(timeout=1000))
             if telemetry_socket in socks and socks[telemetry_socket] == zmq.POLLIN:
+                logger.debug("Received a message on the telemetry socket")
                 message = telemetry_socket.recv_json()
                 logger.debug(f"Received telemetry JSON: {message}")
 
@@ -329,6 +332,7 @@ def zmq_to_cot(zmq_host: str, zmq_port: int, zmq_status_port: int, tak_host: Opt
                     drone_manager.update_or_add_drone(drone_id, drone)
 
             if status_socket in socks and socks[status_socket] == zmq.POLLIN:
+                logger.debug("Received a message on the status socket")
                 status_message = status_socket.recv_json()
                 logger.debug(f"Received system status JSON: {status_message}")
 
@@ -388,6 +392,20 @@ def load_config(file_path: str) -> dict:
         config_dict.update(config['SETTINGS'])
     return config_dict
 
+def setup_logging(debug: bool):
+    """Set up logging configuration."""
+    logger = logging.getLogger()
+    logger.setLevel(logging.DEBUG if debug else logging.INFO)
+
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG if debug else logging.INFO)
+
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+    ch.setFormatter(formatter)
+
+    if not logger.handlers:
+        logger.addHandler(ch)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ZMQ to CoT converter.")
     parser.add_argument("--config", type=str, help="Path to config file")
@@ -427,7 +445,7 @@ if __name__ == "__main__":
     rate_limit = args.rate_limit or float(config_values.get("rate_limit", 1.0))
     max_drones = args.max_drones or int(config_values.get("max_drones", 30))
 
-    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
+    setup_logging(args.debug)
     logger.info("Starting ZMQ to CoT converter with log level: %s", "DEBUG" if args.debug else "INFO")
 
     tak_tls_context = None
