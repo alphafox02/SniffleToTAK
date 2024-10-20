@@ -194,11 +194,13 @@ def send_to_tak_udp_multicast(cot_xml: bytes, multicast_address: str, multicast_
     except Exception as e:
         logger.error(f"Error sending CoT message via multicast: {e}")
 
-def parse_float(value: str) -> float:
-    """Parses a string to a float, ignoring any extraneous characters."""
+def parse_float(value) -> float:
+    """Parses a value to a float, handling different data types."""
     try:
-        return float(value.strip())
-    except (ValueError, AttributeError):
+        if isinstance(value, (float, int)):
+            return float(value)
+        return float(str(value).strip())
+    except (ValueError, TypeError):
         return 0.0
 
 class DroneManager:
@@ -260,15 +262,17 @@ def zmq_to_cot(zmq_host: str, zmq_port: int, zmq_status_port: int, tak_host: Opt
     tak_client = TAKClient(tak_host, tak_port, tak_tls_context) if tak_host and tak_port else None
 
     def signal_handler(sig, frame):
-        """Handles signal interruptions for graceful shutdown."""
-        print("Interrupted by user")
-        telemetry_socket.close()
+    """Handles signal interruptions for graceful shutdown."""
+    logger.info("Interrupted by user")
+    telemetry_socket.close()
+    if status_socket:
         status_socket.close()
+    if not context.closed:
         context.term()
-        if tak_client:
-            tak_client.close()
-        print("Cleaned up ZMQ resources")
-        sys.exit(0)
+    if tak_client:
+        tak_client.close()
+    logger.info("Cleaned up ZMQ resources")
+    sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
 
