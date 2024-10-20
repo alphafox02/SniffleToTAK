@@ -22,6 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
+
 import sys
 import ssl
 import socket
@@ -33,7 +34,8 @@ import tempfile
 import time
 import configparser
 from collections import deque
-from typing import Optional
+from typing import Optional, Dict, Any
+import struct
 
 import zmq
 from lxml import etree
@@ -46,7 +48,8 @@ logger = logging.getLogger(__name__)
 class Drone:
     """Represents a drone and its telemetry data."""
     
-    def __init__(self, id: str, lat: float, lon: float, speed: float, vspeed: float, alt: float, height: float, pilot_lat: float, pilot_lon: float, description: str):
+    def __init__(self, id: str, lat: float, lon: float, speed: float, vspeed: float,
+                 alt: float, height: float, pilot_lat: float, pilot_lon: float, description: str):
         self.id = id
         self.lat = lat
         self.lon = lon
@@ -58,7 +61,8 @@ class Drone:
         self.pilot_lon = pilot_lon
         self.description = description
 
-    def update(self, lat: float, lon: float, speed: float, vspeed: float, alt: float, height: float, pilot_lat: float, pilot_lon: float, description: str):
+    def update(self, lat: float, lon: float, speed: float, vspeed: float, alt: float,
+               height: float, pilot_lat: float, pilot_lon: float, description: str):
         """Updates the drone's telemetry data."""
         self.lat = lat
         self.lon = lon
@@ -72,45 +76,62 @@ class Drone:
 
     def to_cot_xml(self) -> bytes:
         """Converts the drone's telemetry data to a Cursor-on-Target (CoT) XML message."""
-        event = etree.Element('event')
-        event.set('version', '2.0')
-        event.set('uid', f"drone-{self.id}")
-        event.set('type', 'b-m-p-s-m')
-        event.set('time', datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'))
-        event.set('start', datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'))
-        event.set('stale', (datetime.datetime.utcnow() + datetime.timedelta(minutes=10)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'))
-        event.set('how', 'm-g')
+        event = etree.Element('event', version='2.0', uid=self.id, type='b-m-p-s-m',
+                              time=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+                              start=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+                              stale=(datetime.datetime.utcnow() + datetime.timedelta(minutes=10)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+                              how='m-g')
 
-        point = etree.SubElement(event, 'point')
-        point.set('lat', str(self.lat))
-        point.set('lon', str(self.lon))
-        point.set('hae', str(self.alt))
-        point.set('ce', '35.0')
-        point.set('le', '999999')
+        point = etree.SubElement(event, 'point', lat=str(self.lat), lon=str(self.lon),
+                                 hae=str(self.alt), ce='35.0', le='999999')
 
         detail = etree.SubElement(event, 'detail')
 
-        contact = etree.SubElement(detail, 'contact')
-        contact.set('endpoint', '')
-        contact.set('phone', '')
-        contact.set('callsign', self.id)
+        etree.SubElement(detail, 'contact', endpoint='', phone='', callsign=self.id)
 
-        precisionlocation = etree.SubElement(detail, 'precisionlocation')
-        precisionlocation.set('geopointsrc', 'gps')
-        precisionlocation.set('altsrc', 'gps')
+        etree.SubElement(detail, 'precisionlocation', geopointsrc='gps', altsrc='gps')
 
-        remarks = etree.SubElement(detail, 'remarks')
-        remarks.text = (f"Description: {self.description}, Speed: {self.speed} m/s, VSpeed: {self.vspeed} m/s, "
-                        f"Altitude: {self.alt} m, Height: {self.height} m, Pilot Lat: {self.pilot_lat}, Pilot Lon: {self.pilot_lon}")
+        remarks_text = (f"Description: {self.description}, Speed: {self.speed} m/s, VSpeed: {self.vspeed} m/s, "
+                        f"Altitude: {self.alt} m, Height: {self.height} m, "
+                        f"Pilot Lat: {self.pilot_lat}, Pilot Lon: {self.pilot_lon}")
+        etree.SubElement(detail, 'remarks').text = remarks_text
 
-        color = etree.SubElement(detail, 'color')
-        color.set('argb', '-256')
+        etree.SubElement(detail, 'color', argb='-256')
 
-        usericon = etree.SubElement(detail, 'usericon')
-        usericon.set('iconsetpath', '34ae1613-9645-4222-a9d2-e5f243dea2865/Military/UAV_quad.png')
+        etree.SubElement(detail, 'usericon', iconsetpath='34ae1613-9645-4222-a9d2-e5f243dea2865/Military/UAV_quad.png')
 
         return etree.tostring(event, pretty_print=True, xml_declaration=True, encoding='UTF-8')
 
+class SystemStatus:
+    """Represents system status data."""
+    
+    def __init__(self, serial_number: str, lat: float, lon: float, alt: float, remarks: str):
+        self.id = f"system-{serial_number}"
+        self.lat = lat
+        self.lon = lon
+        self.alt = alt
+        self.remarks = remarks
+
+    def to_cot_xml(self) -> bytes:
+        """Converts the system status data to a CoT XML message."""
+        event = etree.Element('event', version='2.0', uid=self.id, type='a-f-G-U-C',
+                              time=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+                              start=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+                              stale=(datetime.datetime.utcnow() + datetime.timedelta(minutes=10)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+                              how='m-g')
+
+        point = etree.SubElement(event, 'point', lat=str(self.lat), lon=str(self.lon),
+                                 hae=str(self.alt), ce='35.0', le='999999')
+
+        detail = etree.SubElement(event, 'detail')
+
+        etree.SubElement(detail, 'contact', callsign=self.id)
+
+        # Use CDATA section to preserve formatting in remarks
+        remarks_element = etree.SubElement(detail, 'remarks')
+        remarks_element.text = etree.CDATA(self.remarks)
+
+        return etree.tostring(event, pretty_print=True, xml_declaration=True, encoding='UTF-8')
 
 class TAKClient:
     """Client for connecting to a TAK server using TLS and sending CoT messages."""
@@ -124,26 +145,25 @@ class TAKClient:
     def connect(self):
         """Establishes a connection to the TAK server."""
         try:
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock = socket.create_connection((self.tak_host, self.tak_port))
             if self.tak_tls_context:
-                self.sock = self.tak_tls_context.wrap_socket(self.sock)
-            self.sock.connect((self.tak_host, self.tak_port))
+                self.sock = self.tak_tls_context.wrap_socket(self.sock, server_hostname=self.tak_host)
             logger.debug("Connected to TAK server")
         except Exception as e:
             logger.error(f"Error connecting to TAK server: {e}")
-            raise
+            self.sock = None
 
     def send(self, cot_xml: bytes):
         """Sends a CoT XML message to the TAK server."""
         try:
-            if self.sock is None:
+            if not self.sock:
                 self.connect()
-            self.sock.send(cot_xml)
-            logger.debug(f"Sent CoT to TAK server: {cot_xml}")
+            self.sock.sendall(cot_xml)
+            logger.debug(f"Sent CoT message: {cot_xml}")
         except Exception as e:
-            logger.error(f"Error sending to TAK server: {e}")
-            self.sock = None  # Force reconnect on next send
-            raise
+            logger.error(f"Error sending CoT message: {e}")
+            self.close()
+            self.connect()
 
     def close(self):
         """Closes the connection to the TAK server."""
@@ -152,73 +172,60 @@ class TAKClient:
             self.sock = None
             logger.debug("Closed connection to TAK server")
 
-
 def send_to_tak_udp(cot_xml: bytes, tak_host: str, tak_port: int):
     """Sends a CoT XML message to the TAK server via UDP."""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.sendto(cot_xml, (tak_host, tak_port))
         sock.close()
-        logger.debug(f"Sent CoT to TAK server: {cot_xml}")
+        logger.debug(f"Sent CoT message via UDP: {cot_xml}")
     except Exception as e:
-        logger.error(f"Error sending to TAK server: {e}")
-        raise
-
+        logger.error(f"Error sending CoT message via UDP: {e}")
 
 def send_to_tak_udp_multicast(cot_xml: bytes, multicast_address: str, multicast_port: int):
     """Sends a CoT XML message to a multicast address via UDP."""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+        ttl = struct.pack('b', 1)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
         sock.sendto(cot_xml, (multicast_address, multicast_port))
         sock.close()
-        logger.debug(f"Sent CoT to multicast address: {cot_xml}")
+        logger.debug(f"Sent CoT message via multicast: {cot_xml}")
     except Exception as e:
-        logger.error(f"Error sending to multicast address: {e}")
-        raise
-
+        logger.error(f"Error sending CoT message via multicast: {e}")
 
 def parse_float(value: str) -> float:
     """Parses a string to a float, ignoring any extraneous characters."""
     try:
-        return float(value.split()[0])
+        return float(value.strip())
     except (ValueError, AttributeError):
         return 0.0
 
-
 class DroneManager:
     """Manages a collection of drones and handles their updates."""
-    
+
     def __init__(self, max_drones=30, rate_limit=1.0):
         self.drones = deque(maxlen=max_drones)
         self.drone_dict = {}
         self.rate_limit = rate_limit
-        self.last_sent_time = time.time()
+        self.last_sent_time = 0.0
 
     def update_or_add_drone(self, drone_id, drone_data):
         """Updates an existing drone or adds a new one to the collection."""
         if drone_id not in self.drone_dict:
             if len(self.drones) >= self.drones.maxlen:
-                oldest_drone = self.drones.popleft()
-                del self.drone_dict[oldest_drone.id]
+                oldest_drone_id = self.drones.popleft()
+                del self.drone_dict[oldest_drone_id]
             self.drones.append(drone_id)
             self.drone_dict[drone_id] = drone_data
         else:
-            self.drone_dict[drone_id].update(
-                lat=drone_data.lat,
-                lon=drone_data.lon,
-                speed=drone_data.speed,
-                vspeed=drone_data.vspeed,
-                alt=drone_data.alt,
-                height=drone_data.height,
-                pilot_lat=drone_data.pilot_lat,
-                pilot_lon=drone_data.pilot_lon,
-                description=drone_data.description
-            )
+            self.drone_dict[drone_id] = drone_data
 
-    def send_updates(self, tak_client: Optional[TAKClient], tak_host: Optional[str], tak_port: Optional[int], enable_multicast: bool, multicast_address: Optional[str], multicast_port: Optional[int]):
+    def send_updates(self, tak_client: Optional[TAKClient], tak_host: Optional[str], tak_port: Optional[int],
+                     enable_multicast: bool, multicast_address: Optional[str], multicast_port: Optional[int]):
         """Sends updates to the TAK server or multicast address."""
-        if time.time() - self.last_sent_time >= self.rate_limit:
+        current_time = time.time()
+        if current_time - self.last_sent_time >= self.rate_limit:
             for drone_id in self.drones:
                 cot_xml = self.drone_dict[drone_id].to_cot_xml()
 
@@ -226,28 +233,35 @@ class DroneManager:
                     tak_client.send(cot_xml)
                 elif tak_host and tak_port:
                     send_to_tak_udp(cot_xml, tak_host, tak_port)
-                
+
                 if enable_multicast and multicast_address and multicast_port:
                     send_to_tak_udp_multicast(cot_xml, multicast_address, multicast_port)
 
-            self.last_sent_time = time.time()
+            self.last_sent_time = current_time
 
-
-def zmq_to_cot(zmq_host: str, zmq_port: int, tak_host: Optional[str] = None, tak_port: Optional[int] = None, tak_tls_context: Optional[ssl.SSLContext] = None, multicast_address: Optional[str] = None, multicast_port: Optional[int] = None, enable_multicast: bool = False, rate_limit: float = 1.0, max_drones: int = 30):
+def zmq_to_cot(zmq_host: str, zmq_port: int, zmq_status_port: int, tak_host: Optional[str] = None,
+               tak_port: Optional[int] = None, tak_tls_context: Optional[ssl.SSLContext] = None,
+               multicast_address: Optional[str] = None, multicast_port: Optional[int] = None,
+               enable_multicast: bool = False, rate_limit: float = 1.0, max_drones: int = 30):
     """Main function to convert ZMQ messages to CoT and send to TAK server."""
-    
+
     context = zmq.Context()
-    zmq_socket = context.socket(zmq.SUB)
-    zmq_socket.connect(f"tcp://{zmq_host}:{zmq_port}")
-    zmq_socket.setsockopt_string(zmq.SUBSCRIBE, "")
+    telemetry_socket = context.socket(zmq.SUB)
+    telemetry_socket.connect(f"tcp://{zmq_host}:{zmq_port}")
+    telemetry_socket.setsockopt_string(zmq.SUBSCRIBE, "")
+
+    status_socket = context.socket(zmq.SUB)
+    status_socket.connect(f"tcp://{zmq_host}:{zmq_status_port}")
+    status_socket.setsockopt_string(zmq.SUBSCRIBE, "")
 
     drone_manager = DroneManager(max_drones=max_drones, rate_limit=rate_limit)
-    tak_client = TAKClient(tak_host, tak_port, tak_tls_context) if tak_host and tak_port and tak_tls_context else None
+    tak_client = TAKClient(tak_host, tak_port, tak_tls_context) if tak_host and tak_port else None
 
     def signal_handler(sig, frame):
         """Handles signal interruptions for graceful shutdown."""
         print("Interrupted by user")
-        zmq_socket.close()
+        telemetry_socket.close()
+        status_socket.close()
         context.term()
         if tak_client:
             tak_client.close()
@@ -256,11 +270,16 @@ def zmq_to_cot(zmq_host: str, zmq_port: int, tak_host: Optional[str] = None, tak
 
     signal.signal(signal.SIGINT, signal_handler)
 
+    poller = zmq.Poller()
+    poller.register(telemetry_socket, zmq.POLLIN)
+    poller.register(status_socket, zmq.POLLIN)
+
     try:
         while True:
-            try:
-                message = zmq_socket.recv_json()
-                logger.debug(f"Received JSON: {message}")
+            socks = dict(poller.poll(timeout=1000))
+            if telemetry_socket in socks and socks[telemetry_socket] == zmq.POLLIN:
+                message = telemetry_socket.recv_json()
+                logger.debug(f"Received telemetry JSON: {message}")
 
                 drone_info = {}
                 for item in message:
@@ -272,7 +291,7 @@ def zmq_to_cot(zmq_host: str, zmq_port: int, tak_host: Optional[str] = None, tak
                         elif id_type == 'CAA Assigned Registration ID' and 'id' not in drone_info:
                             drone_info['id'] = item['Basic ID'].get('id', 'unknown')
                             logger.debug(f"Parsed CAA Assigned ID: {drone_info['id']}")
-                    
+
                     if 'id' in drone_info:
                         if not drone_info['id'].startswith('drone-'):
                             drone_info['id'] = f"drone-{drone_info['id']}"
@@ -309,13 +328,56 @@ def zmq_to_cot(zmq_host: str, zmq_port: int, tak_host: Optional[str] = None, tak
                     )
                     drone_manager.update_or_add_drone(drone_id, drone)
 
-                drone_manager.send_updates(tak_client, tak_host, tak_port, enable_multicast, multicast_address, multicast_port)
+            if status_socket in socks and socks[status_socket] == zmq.POLLIN:
+                status_message = status_socket.recv_json()
+                logger.debug(f"Received system status JSON: {status_message}")
 
-            except Exception as e:
-                logger.error(f"Error receiving or processing message: {e}")
+                serial_number = status_message.get('serial_number', 'unknown')
+                gps_data = status_message.get('gps_data', {})
+                lat = parse_float(gps_data.get('latitude', '0.0'))
+                lon = parse_float(gps_data.get('longitude', '0.0'))
+                alt = parse_float(gps_data.get('altitude', '0.0'))
+
+                system_stats = status_message.get('system_stats', {})
+
+                # Extract individual system statistics with labels
+                cpu_usage = system_stats.get('cpu_usage', 'N/A')
+                memory = system_stats.get('memory', {})
+                memory_total = memory.get('total', 'N/A')
+                memory_available = memory.get('available', 'N/A')
+                disk = system_stats.get('disk', {})
+                disk_total = disk.get('total', 'N/A')
+                disk_used = disk.get('used', 'N/A')
+                temperature = system_stats.get('temperature', 'N/A')
+                uptime = system_stats.get('uptime', 'N/A')
+
+                # Format the remarks with labels
+                remarks = (
+                    f"CPU Usage: {cpu_usage}%\n"
+                    f"Memory Total: {memory_total} bytes, Available: {memory_available} bytes\n"
+                    f"Disk Total: {disk_total} bytes, Used: {disk_used} bytes\n"
+                    f"Temperature: {temperature}°C\n"
+                    f"Uptime: {uptime} seconds"
+                )
+
+                system_status = SystemStatus(serial_number, lat, lon, alt, remarks)
+
+                cot_xml = system_status.to_cot_xml()
+
+                # Sending CoT message
+                if tak_client:
+                    tak_client.send(cot_xml)
+                elif tak_host and tak_port:
+                    send_to_tak_udp(cot_xml, tak_host, tak_port)
+                if enable_multicast and multicast_address and multicast_port:
+                    send_to_tak_udp_multicast(cot_xml, multicast_address, multicast_port)
+
+            drone_manager.send_updates(tak_client, tak_host, tak_port, enable_multicast, multicast_address, multicast_port)
+
+    except Exception as e:
+        logger.error(f"Error in main loop: {e}")
     except KeyboardInterrupt:
         signal_handler(None, None)
-
 
 def load_config(file_path: str) -> dict:
     """Load configurations from a file."""
@@ -330,7 +392,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ZMQ to CoT converter.")
     parser.add_argument("--config", type=str, help="Path to config file")
     parser.add_argument("--zmq-host", default="127.0.0.1", help="ZMQ server host")
-    parser.add_argument("--zmq-port", type=int, default=4224, help="ZMQ server port")
+    parser.add_argument("--zmq-port", type=int, default=4224, help="ZMQ server port for telemetry")
+    parser.add_argument("--zmq-status-port", type=int, default=4225, help="ZMQ server port for system status")
     parser.add_argument("--tak-host", type=str, help="TAK server hostname or IP address (optional)")
     parser.add_argument("--tak-port", type=int, help="TAK server port (optional)")
     parser.add_argument("--tak-tls-p12", type=str, help="Path to TAK server TLS PKCS#12 file (optional)")
@@ -350,37 +413,33 @@ if __name__ == "__main__":
         config_values = load_config(args.config)
 
     # Override config values with command-line arguments
-    zmq_host = args.zmq_host if args.zmq_host else config_values.get("zmq_host", "127.0.0.1")
-    zmq_port = args.zmq_port if args.zmq_port else int(config_values.get("zmq_port", 4224))
-    tak_host = args.tak_host if args.tak_host else config_values.get("tak_host")
-    tak_port = args.tak_port if args.tak_port else int(config_values.get("tak_port")) if config_values.get("tak_port", "").isdigit() else None
-    tak_tls_p12 = args.tak_tls_p12 if args.tak_tls_p12 else config_values.get("tak_tls_p12")
-    tak_tls_p12_pass = args.tak_tls_p12_pass if args.tak_tls_p12_pass else config_values.get("tak_tls_p12_pass")
-    tak_tls_skip_verify = args.tak_tls_skip_verify if args.tak_tls_skip_verify else config_values.get("tak_tls_skip_verify", "False") == "True"
-    tak_multicast_addr = args.tak_multicast_addr if args.tak_multicast_addr else config_values.get("tak_multicast_addr", "239.2.3.1")
-    tak_multicast_port = args.tak_multicast_port if args.tak_multicast_port else int(config_values.get("tak_multicast_port", 6969))
-    enable_multicast = args.enable_multicast if args.enable_multicast else config_values.get("enable_multicast", "False") == "True"
-    rate_limit = args.rate_limit if args.rate_limit else float(config_values.get("rate_limit", 1.0))
-    max_drones = args.max_drones if args.max_drones else int(config_values.get("max_drones", 30))
-
+    zmq_host = args.zmq_host or config_values.get("zmq_host", "127.0.0.1")
+    zmq_port = args.zmq_port or int(config_values.get("zmq_port", 4224))
+    zmq_status_port = args.zmq_status_port or int(config_values.get("zmq_status_port", 4225))
+    tak_host = args.tak_host or config_values.get("tak_host")
+    tak_port = args.tak_port or int(config_values.get("tak_port", "0")) or None
+    tak_tls_p12 = args.tak_tls_p12 or config_values.get("tak_tls_p12")
+    tak_tls_p12_pass = args.tak_tls_p12_pass or config_values.get("tak_tls_p12_pass")
+    tak_tls_skip_verify = args.tak_tls_skip_verify or config_values.get("tak_tls_skip_verify", "False") == "True"
+    tak_multicast_addr = args.tak_multicast_addr or config_values.get("tak_multicast_addr", "239.2.3.1")
+    tak_multicast_port = args.tak_multicast_port or int(config_values.get("tak_multicast_port", 6969))
+    enable_multicast = args.enable_multicast or config_values.get("enable_multicast", "False") == "True"
+    rate_limit = args.rate_limit or float(config_values.get("rate_limit", 1.0))
+    max_drones = args.max_drones or int(config_values.get("max_drones", 30))
 
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
     logger.info("Starting ZMQ to CoT converter with log level: %s", "DEBUG" if args.debug else "INFO")
 
     tak_tls_context = None
-    if args.tak_tls_p12:
+    if tak_tls_p12:
         try:
-            with open(args.tak_tls_p12, 'rb') as p12_file:
+            with open(tak_tls_p12, 'rb') as p12_file:
                 p12_data = p12_file.read()
         except OSError as err:
             logger.critical("Failed to read TAK server TLS PKCS#12 file: %s.", err)
             exit(1)
 
-        p12_pass = None
-        pem_encryption = cryptography.hazmat.primitives.serialization.NoEncryption()
-        if args.tak_tls_p12_pass:
-            p12_pass = args.tak_tls_p12_pass.encode()
-            pem_encryption = cryptography.hazmat.primitives.serialization.BestAvailableEncryption(p12_pass)
+        p12_pass = tak_tls_p12_pass.encode() if tak_tls_p12_pass else None
 
         try:
             key, cert, more_certs = cryptography.hazmat.primitives.serialization.pkcs12.load_key_and_certificates(p12_data, p12_pass)
@@ -388,25 +447,16 @@ if __name__ == "__main__":
             logger.critical("Failed to load TAK server TLS PKCS#12: %s.", err)
             exit(1)
 
-        key_bytes = key.private_bytes(cryptography.hazmat.primitives.serialization.Encoding.PEM,
-                                      cryptography.hazmat.primitives.serialization.PrivateFormat.TraditionalOpenSSL,
-                                      pem_encryption)
-        cert_bytes = cert.public_bytes(cryptography.hazmat.primitives.serialization.Encoding.PEM)
-        ca_bytes = b"".join(cert.public_bytes(cryptography.hazmat.primitives.serialization.Encoding.PEM) for cert in more_certs)
-
-        with tempfile.NamedTemporaryFile(delete=False) as key_file, \
-                tempfile.NamedTemporaryFile(delete=False) as cert_file, \
-                tempfile.NamedTemporaryFile(delete=False) as ca_file:
-            key_file.write(key_bytes)
-            cert_file.write(cert_bytes)
-            ca_file.write(ca_bytes)
-
         tak_tls_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-        tak_tls_context.load_cert_chain(certfile=cert_file.name, keyfile=key_file.name, password=p12_pass)
-        if len(ca_bytes) > 0:
-            tak_tls_context.load_verify_locations(cafile=ca_file.name)
-        if args.tak_tls_skip_verify:
+        tak_tls_context.load_cert_chain(certfile=cert.public_bytes(encoding=cryptography.hazmat.primitives.serialization.Encoding.PEM),
+                                        keyfile=key.private_bytes(encoding=cryptography.hazmat.primitives.serialization.Encoding.PEM,
+                                                                  format=cryptography.hazmat.primitives.serialization.PrivateFormat.TraditionalOpenSSL,
+                                                                  encryption_algorithm=cryptography.hazmat.primitives.serialization.NoEncryption()))
+        if more_certs:
+            tak_tls_context.load_verify_locations(cadata=''.join([cert.public_bytes(cryptography.hazmat.primitives.serialization.Encoding.PEM).decode('utf-8') for cert in more_certs]))
+        if tak_tls_skip_verify:
             tak_tls_context.check_hostname = False
-            tak_tls_context.verify_mode = ssl.VerifyMode.CERT_NONE
+            tak_tls_context.verify_mode = ssl.CERT_NONE
 
-    zmq_to_cot(args.zmq_host, args.zmq_port, args.tak_host, args.tak_port, tak_tls_context, args.tak_multicast_addr, args.tak_multicast_port, args.enable_multicast, args.rate_limit, args.max_drones)
+    zmq_to_cot(zmq_host, zmq_port, zmq_status_port, tak_host, tak_port, tak_tls_context, tak_multicast_addr,
+               tak_multicast_port, enable_multicast, rate_limit, max_drones)
