@@ -330,7 +330,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ZMQ to CoT converter.")
     parser.add_argument("--config", type=str, help="Path to config file")
     parser.add_argument("--zmq-host", default="127.0.0.1", help="ZMQ server host")
-    parser.add_argument("--zmq-port", type=int, default=12345, help="ZMQ server port")
+    parser.add_argument("--zmq-port", type=int, default=4224, help="ZMQ server port")
     parser.add_argument("--tak-host", type=str, help="TAK server hostname or IP address (optional)")
     parser.add_argument("--tak-port", type=int, help="TAK server port (optional)")
     parser.add_argument("--tak-tls-p12", type=str, help="Path to TAK server TLS PKCS#12 file (optional)")
@@ -351,7 +351,7 @@ if __name__ == "__main__":
 
     # Override config values with command-line arguments
     zmq_host = args.zmq_host if args.zmq_host else config_values.get("zmq_host", "127.0.0.1")
-    zmq_port = args.zmq_port if args.zmq_port else int(config_values.get("zmq_port", 12345))
+    zmq_port = args.zmq_port if args.zmq_port else int(config_values.get("zmq_port", 4224))
     tak_host = args.tak_host if args.tak_host else config_values.get("tak_host")
     tak_port = args.tak_port if args.tak_port else int(config_values.get("tak_port")) if config_values.get("tak_port", "").isdigit() else None
     tak_tls_p12 = args.tak_tls_p12 if args.tak_tls_p12 else config_values.get("tak_tls_p12")
