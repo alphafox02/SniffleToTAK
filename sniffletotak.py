@@ -262,17 +262,17 @@ def zmq_to_cot(zmq_host: str, zmq_port: int, zmq_status_port: int, tak_host: Opt
     tak_client = TAKClient(tak_host, tak_port, tak_tls_context) if tak_host and tak_port else None
 
     def signal_handler(sig, frame):
-    """Handles signal interruptions for graceful shutdown."""
-    logger.info("Interrupted by user")
-    telemetry_socket.close()
-    if status_socket:
-        status_socket.close()
-    if not context.closed:
-        context.term()
-    if tak_client:
-        tak_client.close()
-    logger.info("Cleaned up ZMQ resources")
-    sys.exit(0)
+        """Handles signal interruptions for graceful shutdown."""
+        logger.info("Interrupted by user")
+        telemetry_socket.close()
+        if status_socket:
+            status_socket.close()
+        if not context.closed:
+            context.term()
+        if tak_client:
+            tak_client.close()
+        logger.info("Cleaned up ZMQ resources")
+        sys.exit(0)
 
     signal.signal(signal.SIGINT, signal_handler)
 
