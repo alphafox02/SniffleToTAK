@@ -456,19 +456,19 @@ def setup_logging(debug: bool):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ZMQ to CoT converter.")
     parser.add_argument("--config", type=str, help="Path to config file")
-    parser.add_argument("--zmq-host", default="127.0.0.1", help="ZMQ server host")
-    parser.add_argument("--zmq-port", type=int, default=4224, help="ZMQ server port for telemetry")
-    parser.add_argument("--zmq-status-port", type=int, default=4225, help="ZMQ server port for system status")
+    parser.add_argument("--zmq-host", help="ZMQ server host")
+    parser.add_argument("--zmq-port", type=int, help="ZMQ server port for telemetry")
+    parser.add_argument("--zmq-status-port", type=int, help="ZMQ server port for system status (optional)")
     parser.add_argument("--tak-host", type=str, help="TAK server hostname or IP address (optional)")
     parser.add_argument("--tak-port", type=int, help="TAK server port (optional)")
     parser.add_argument("--tak-tls-p12", type=str, help="Path to TAK server TLS PKCS#12 file (optional)")
     parser.add_argument("--tak-tls-p12-pass", type=str, help="Password for TAK server TLS PKCS#12 file (optional)")
     parser.add_argument("--tak-tls-skip-verify", action="store_true", help="(UNSAFE) Disable TLS server verification")
-    parser.add_argument("--tak-multicast-addr", type=str, default="239.2.3.1", help="ATAK multicast address (optional)")
-    parser.add_argument("--tak-multicast-port", type=int, default=6969, help="ATAK multicast port (optional)")
+    parser.add_argument("--tak-multicast-addr", type=str, help="ATAK multicast address (optional)")
+    parser.add_argument("--tak-multicast-port", type=int, help="ATAK multicast port (optional)")
     parser.add_argument("--enable-multicast", action="store_true", help="Enable sending to multicast address")
-    parser.add_argument("--rate-limit", type=float, default=1.0, help="Rate limit for sending CoT messages (seconds)")
-    parser.add_argument("--max-drones", type=int, default=30, help="Maximum number of drones to track simultaneously")
+    parser.add_argument("--rate-limit", type=float, help="Rate limit for sending CoT messages (seconds)")
+    parser.add_argument("--max-drones", type=int, help="Maximum number of drones to track simultaneously")
     parser.add_argument("-d", "--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
@@ -477,20 +477,38 @@ if __name__ == "__main__":
     if args.config:
         config_values = load_config(args.config)
 
-    # Override config values with command-line arguments
-    zmq_host = args.zmq_host or config_values.get("zmq_host", "127.0.0.1")
-    zmq_port = args.zmq_port or int(config_values.get("zmq_port", 4224))
-    zmq_status_port = args.zmq_status_port or int(config_values.get("zmq_status_port", 4225))
-    tak_host = args.tak_host or config_values.get("tak_host")
-    tak_port = args.tak_port or int(config_values.get("tak_port", "0")) or None
-    tak_tls_p12 = args.tak_tls_p12 or config_values.get("tak_tls_p12")
-    tak_tls_p12_pass = args.tak_tls_p12_pass or config_values.get("tak_tls_p12_pass")
-    tak_tls_skip_verify = args.tak_tls_skip_verify or config_values.get("tak_tls_skip_verify", "False") == "True"
-    tak_multicast_addr = args.tak_multicast_addr or config_values.get("tak_multicast_addr", "239.2.3.1")
-    tak_multicast_port = args.tak_multicast_port or int(config_values.get("tak_multicast_port", 6969))
-    enable_multicast = args.enable_multicast or config_values.get("enable_multicast", "False") == "True"
-    rate_limit = args.rate_limit or float(config_values.get("rate_limit", 1.0))
-    max_drones = args.max_drones or int(config_values.get("max_drones", 30))
+    setup_logging(args.debug)
+    logger.info("Starting ZMQ to CoT converter with log level: %s", "DEBUG" if args.debug else "INFO")
+
+    # Function to safely get integer values from config or defaults
+    def get_int(value, default=None):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    # Function to safely get boolean values from config or defaults
+    def get_bool(value, default=False):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.lower() in ('true', 'yes', '1')
+        return default
+
+    # Assign configuration values, giving precedence to command-line arguments
+    zmq_host = args.zmq_host if args.zmq_host is not None else config_values.get("zmq_host", "127.0.0.1")
+    zmq_port = args.zmq_port if args.zmq_port is not None else get_int(config_values.get("zmq_port"), 4224)
+    zmq_status_port = args.zmq_status_port if args.zmq_status_port is not None else get_int(config_values.get("zmq_status_port"), None)
+    tak_host = args.tak_host if args.tak_host is not None else config_values.get("tak_host") or None
+    tak_port = args.tak_port if args.tak_port is not None else get_int(config_values.get("tak_port"), None)
+    tak_tls_p12 = args.tak_tls_p12 if args.tak_tls_p12 is not None else config_values.get("tak_tls_p12")
+    tak_tls_p12_pass = args.tak_tls_p12_pass if args.tak_tls_p12_pass is not None else config_values.get("tak_tls_p12_pass")
+    tak_tls_skip_verify = args.tak_tls_skip_verify if args.tak_tls_skip_verify else get_bool(config_values.get("tak_tls_skip_verify"), False)
+    tak_multicast_addr = args.tak_multicast_addr if args.tak_multicast_addr is not None else config_values.get("tak_multicast_addr")
+    tak_multicast_port = args.tak_multicast_port if args.tak_multicast_port is not None else get_int(config_values.get("tak_multicast_port"), None)
+    enable_multicast = args.enable_multicast if args.enable_multicast else get_bool(config_values.get("enable_multicast"), False)
+    rate_limit = args.rate_limit if args.rate_limit is not None else float(config_values.get("rate_limit", 1.0))
+    max_drones = args.max_drones if args.max_drones is not None else int(config_values.get("max_drones", 30))
 
     setup_logging(args.debug)
     logger.info("Starting ZMQ to CoT converter with log level: %s", "DEBUG" if args.debug else "INFO")
