@@ -37,7 +37,8 @@ This command configures the Sniffle dongle to look for Bluetooth 5 long range ex
 
 ```sh
 python3 DroneID/zmq_decoder.py -z 
-``
+```
+
 This starts the decoder, connects to the zmq server started by the receiver, and in turn offers decoded info over zmq on port 4224
 
 ### Start the SniffleToTAK Proxy with the Correct ZMQ Details
