@@ -552,9 +552,9 @@ if __name__ == "__main__":
     max_drones = args.max_drones if args.max_drones is not None else int(config_values.get("max_drones", 30))
 
     tak_tls_context = None
-    
-    if tak_host and tak_port:
-        if args.tak_tls_p12:
+
+if tak_host and tak_port:
+    if args.tak_tls_p12:
         try:
             with open(args.tak_tls_p12, 'rb') as p12_file:
                 p12_data = p12_file.read()
@@ -569,16 +569,22 @@ if __name__ == "__main__":
             pem_encryption = cryptography.hazmat.primitives.serialization.BestAvailableEncryption(p12_pass)
 
         try:
-            key, cert, more_certs = cryptography.hazmat.primitives.serialization.pkcs12.load_key_and_certificates(p12_data, p12_pass)
+            key, cert, more_certs = cryptography.hazmat.primitives.serialization.pkcs12.load_key_and_certificates(
+                p12_data, p12_pass
+            )
         except Exception as err:
             logger.critical("Failed to load TAK server TLS PKCS#12: %s.", err)
             exit(1)
 
-        key_bytes = key.private_bytes(cryptography.hazmat.primitives.serialization.Encoding.PEM,
-                                      cryptography.hazmat.primitives.serialization.PrivateFormat.TraditionalOpenSSL,
-                                      pem_encryption)
+        key_bytes = key.private_bytes(
+            cryptography.hazmat.primitives.serialization.Encoding.PEM,
+            cryptography.hazmat.primitives.serialization.PrivateFormat.TraditionalOpenSSL,
+            pem_encryption,
+        )
         cert_bytes = cert.public_bytes(cryptography.hazmat.primitives.serialization.Encoding.PEM)
-        ca_bytes = b"".join(cert.public_bytes(cryptography.hazmat.primitives.serialization.Encoding.PEM) for cert in more_certs)
+        ca_bytes = b"".join(
+            cert.public_bytes(cryptography.hazmat.primitives.serialization.Encoding.PEM) for cert in more_certs
+        )
 
         with tempfile.NamedTemporaryFile(delete=False) as key_file, \
                 tempfile.NamedTemporaryFile(delete=False) as cert_file, \
@@ -594,11 +600,10 @@ if __name__ == "__main__":
         if args.tak_tls_skip_verify:
             tak_tls_context.check_hostname = False
             tak_tls_context.verify_mode = ssl.VerifyMode.CERT_NONE
-            
-        else:
-            tak_tls_context = None
     else:
         tak_tls_context = None
+else:
+    tak_tls_context = None
         
     zmq_to_cot(zmq_host, zmq_port, zmq_status_port, tak_host, tak_port, tak_tls_context, tak_multicast_addr,
                tak_multicast_port, enable_multicast, rate_limit, max_drones)
