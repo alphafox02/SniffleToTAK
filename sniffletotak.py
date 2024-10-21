@@ -552,32 +552,51 @@ if __name__ == "__main__":
     max_drones = args.max_drones if args.max_drones is not None else int(config_values.get("max_drones", 30))
 
     tak_tls_context = None
-    if tak_tls_p12:
-        try:
-            with open(tak_tls_p12, 'rb') as p12_file:
-                p12_data = p12_file.read()
-        except OSError as err:
-            logger.critical("Failed to read TAK server TLS PKCS#12 file: %s.", err)
-            exit(1)
+    
+    if tak_host and tak_port:
+        if tak_tls_p12:
+            try:
+                with open(tak_tls_p12, 'rb') as p12_file:
+                    p12_data = p12_file.read()
+            except OSError as err:
+                logger.critical("Failed to read TAK server TLS PKCS#12 file: %s.", err)
+                exit(1)
 
-        p12_pass = tak_tls_p12_pass.encode() if tak_tls_p12_pass else None
+            p12_pass = tak_tls_p12_pass.encode() if tak_tls_p12_pass else None
 
-        try:
-            key, cert, more_certs = cryptography.hazmat.primitives.serialization.pkcs12.load_key_and_certificates(p12_data, p12_pass)
-        except Exception as err:
-            logger.critical("Failed to load TAK server TLS PKCS#12: %s.", err)
-            exit(1)
+            try:
+                key, cert, more_certs = cryptography.hazmat.primitives.serialization.pkcs12.load_key_and_certificates(
+                    p12_data, p12_pass
+                )
+            except Exception as err:
+                logger.critical("Failed to load TAK server TLS PKCS#12: %s.", err)
+                exit(1)
 
-        tak_tls_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-        tak_tls_context.load_cert_chain(certfile=cert.public_bytes(encoding=cryptography.hazmat.primitives.serialization.Encoding.PEM),
-                                        keyfile=key.private_bytes(encoding=cryptography.hazmat.primitives.serialization.Encoding.PEM,
-                                                                  format=cryptography.hazmat.primitives.serialization.PrivateFormat.TraditionalOpenSSL,
-                                                                  encryption_algorithm=cryptography.hazmat.primitives.serialization.NoEncryption()))
-        if more_certs:
-            tak_tls_context.load_verify_locations(cadata=''.join([cert.public_bytes(cryptography.hazmat.primitives.serialization.Encoding.PEM).decode('utf-8') for cert in more_certs]))
-        if tak_tls_skip_verify:
-            tak_tls_context.check_hostname = False
-            tak_tls_context.verify_mode = ssl.CERT_NONE
-
+            tak_tls_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+            tak_tls_context.load_cert_chain(
+                certfile=cert.public_bytes(encoding=cryptography.hazmat.primitives.serialization.Encoding.PEM),
+                keyfile=key.private_bytes(
+                    encoding=cryptography.hazmat.primitives.serialization.Encoding.PEM,
+                    format=cryptography.hazmat.primitives.serialization.PrivateFormat.TraditionalOpenSSL,
+                    encryption_algorithm=cryptography.hazmat.primitives.serialization.NoEncryption(),
+                ),
+            )
+            if more_certs:
+                tak_tls_context.load_verify_locations(
+                    cadata=''.join(
+                        [
+                            cert.public_bytes(cryptography.hazmat.primitives.serialization.Encoding.PEM).decode('utf-8')
+                            for cert in more_certs
+                        ]
+                    )
+                )
+            if tak_tls_skip_verify:
+                tak_tls_context.check_hostname = False
+                tak_tls_context.verify_mode = ssl.CERT_NONE
+        else:
+            tak_tls_context = None
+    else:
+        tak_tls_context = None
+        
     zmq_to_cot(zmq_host, zmq_port, zmq_status_port, tak_host, tak_port, tak_tls_context, tak_multicast_addr,
                tak_multicast_port, enable_multicast, rate_limit, max_drones)
