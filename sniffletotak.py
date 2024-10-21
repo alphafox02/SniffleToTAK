@@ -140,7 +140,7 @@ class SystemStatus:
         self.remarks = remarks
 
     def to_cot_xml(self) -> bytes:
-        """Converts the system status data to a Cursor-on-Target (CoT) XML message."""
+        """Converts the system status data to a CoT XML message."""
         current_time = datetime.datetime.utcnow()
         stale_time = current_time + datetime.timedelta(minutes=10)
 
@@ -148,36 +148,46 @@ class SystemStatus:
             'event',
             version='2.0',
             uid=self.id,
-            type='a-f-G-U-C',
-            time=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-            start=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-            stale=stale_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            type='a-f-G-U-C',  # Friendly Ground Unit
+            time=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ')[:-3] + 'Z',
+            start=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ')[:-3] + 'Z',
+            stale=stale_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ')[:-3] + 'Z',
             how='m-g'
         )
-
-        hae_value = str(self.alt) if self.alt > 0 else '0'
 
         point = etree.SubElement(
             event,
             'point',
             lat=str(self.lat),
             lon=str(self.lon),
-            hae=hae_value,
-            ce='9999999.0',
-            le='9999999.0'
+            hae=str(self.alt),
+            ce='10.0',
+            le='10.0'
         )
 
         detail = etree.SubElement(event, 'detail')
 
-        # Place remarks first
-        remarks_element = etree.SubElement(detail, 'remarks')
-        remarks_element.text = self.remarks  # Assign text directly
-
-        # Contact information
+        # Include contact information
         etree.SubElement(detail, 'contact', callsign=self.id)
 
-        # Continue with other elements as needed
-        # You can include additional elements like 'uid', 'precisionlocation', etc.
+        # Include precision location
+        etree.SubElement(detail, 'precisionlocation', geopointsrc='GPS', altsrc='GPS')
+
+        # Include status
+        status = etree.SubElement(detail, 'status')
+        status.set('battery', '100')  # Placeholder value
+        status.set('readiness', 'Available')
+
+        # Include TAK version info
+        etree.SubElement(detail, 'takv', device='PythonScript', platform='Python', os='Linux', version='1.0')
+
+        # Include track info
+        etree.SubElement(detail, 'track', speed='0', course='0')
+
+        # Include color
+        etree.SubElement(detail, 'color', argb='-1')  # White color
+
+        # Omit usericon to use the default dot icon
 
         return etree.tostring(event, pretty_print=True, xml_declaration=True, encoding='UTF-8')
 
