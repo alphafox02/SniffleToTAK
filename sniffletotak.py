@@ -148,44 +148,58 @@ class SystemStatus:
             'event',
             version='2.0',
             uid=self.id,
-            type='a-f-G-U-C',  # Friendly Ground Unit
+            type='a-f-G-U-C',
             time=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
             start=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
             stale=stale_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
             how='m-g'
         )
 
+        # Use a valid altitude or a placeholder if not available
+        hae_value = str(self.alt) if self.alt > 0 else '999999'
+
         point = etree.SubElement(
             event,
             'point',
             lat=str(self.lat),
             lon=str(self.lon),
-            hae=str(self.alt),
-            ce='10.0',
-            le='10.0'
+            hae=hae_value,
+            ce='35.0',
+            le='999999'
         )
 
         detail = etree.SubElement(event, 'detail')
 
-        # Include contact information
-        etree.SubElement(detail, 'contact', callsign=self.id)
+        # Contact info
+        etree.SubElement(detail, 'contact', endpoint='', phone='', callsign=self.id)
 
-        # Include precision location
+        # UID with Droid attribute
+        etree.SubElement(detail, 'uid', Droid=self.id)
+
+        # Group info
+        etree.SubElement(detail, '__group', name='CIV', role='Team Member')
+
+        # Precision location
         etree.SubElement(detail, 'precisionlocation', geopointsrc='GPS', altsrc='GPS')
 
-        # Include remarks without CDATA
-        remarks_element = etree.SubElement(detail, 'remarks')
-        remarks_element.text = self.remarks  # Ensure remarks text is clean
-
-        # Include color (optional)
-        etree.SubElement(detail, 'color', argb='-1')  # White color
-
-        # Omit usericon to use the default dot icon
-
-        # Optionally include status
+        # Status
         status = etree.SubElement(detail, 'status')
-        status.set('battery', '100')  # Placeholder value
+        status.set('battery', '100')
         status.set('readiness', 'Available')
+
+        # TAK version info
+        etree.SubElement(detail, 'takv', device='PythonScript', platform='Python', os='Linux', version='1.0')
+
+        # Track info
+        etree.SubElement(detail, 'track', speed='0', course='0')
+
+        # Color and icon
+        etree.SubElement(detail, 'color', argb='-256')
+        etree.SubElement(detail, 'usericon', iconsetpath='-256')
+
+        # Remarks
+        remarks_element = etree.SubElement(detail, 'remarks')
+        remarks_element.text = self.remarks
 
         return etree.tostring(event, pretty_print=True, xml_declaration=True, encoding='UTF-8')
 
