@@ -136,7 +136,7 @@ class SystemStatus:
             'event',
             version='2.0',
             uid=self.id,
-            type='b-m-p-s-m',  # Friendly Ground Unit
+            type='a-f-G-U-C',  # Friendly Ground Unit
             time=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
             start=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
             stale=(datetime.datetime.utcnow() + datetime.timedelta(minutes=10)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
@@ -149,36 +149,38 @@ class SystemStatus:
             lat=str(self.lat),
             lon=str(self.lon),
             hae=str(self.alt),
-            ce='35.0',
-            le='999999'
+            ce='10.0',
+            le='10.0'
         )
 
         detail = etree.SubElement(event, 'detail')
 
         # Include contact information
-        etree.SubElement(detail, 'contact', endpoint='', phone='', callsign=self.id)
+        etree.SubElement(detail, 'contact', callsign=self.id)
 
         # Include precision location
-        etree.SubElement(detail, 'precisionlocation', geopointsrc='gps', altsrc='gps')
+        etree.SubElement(detail, 'precisionlocation', geopointsrc='GPS', altsrc='GPS')
 
-         # Include remarks without CDATA
+        # Include remarks without CDATA
         remarks_element = etree.SubElement(detail, 'remarks')
-        # Clean the remarks text to ensure it's XML-safe
-        safe_remarks = etree.CDATA(self.remarks)
-        remarks_element.text = safe_remarks
+        remarks_element.text = self.remarks  # Ensure remarks text is clean
 
         # Include color (optional)
         etree.SubElement(detail, 'color', argb='-1')  # White color
 
         # Omit usericon to use the default dot icon
-        # Alternatively, specify a default icon if needed
-        # etree.SubElement(detail, 'usericon', iconsetpath='some/default/icon/path')
+
+        # Optionally include status
+        status = etree.SubElement(detail, 'status')
+        status.set('battery', '100')  # Placeholder value
+        status.set('readiness', 'Available')
 
         return etree.tostring(event, pretty_print=True, xml_declaration=True, encoding='UTF-8')
-        
+
+
 class TAKClient:
     """Client for connecting to a TAK server using TLS and sending CoT messages."""
-    
+
     def __init__(self, tak_host: str, tak_port: int, tak_tls_context: Optional[ssl.SSLContext]):
         self.tak_host = tak_host
         self.tak_port = tak_port
@@ -201,8 +203,11 @@ class TAKClient:
         try:
             if not self.sock:
                 self.connect()
-            self.sock.sendall(cot_xml)
-            logger.debug(f"Sent CoT message: {cot_xml}")
+            if self.sock:
+                self.sock.sendall(cot_xml)
+                logger.debug(f"Sent CoT message: {cot_xml}")
+            else:
+                logger.error("No socket available to send CoT message.")
         except Exception as e:
             logger.error(f"Error sending CoT message: {e}")
             self.close()
@@ -215,6 +220,7 @@ class TAKClient:
             self.sock = None
             logger.debug("Closed connection to TAK server")
 
+
 def send_to_tak_udp(cot_xml: bytes, tak_host: str, tak_port: int):
     """Sends a CoT XML message to the TAK server via UDP."""
     try:
@@ -224,6 +230,7 @@ def send_to_tak_udp(cot_xml: bytes, tak_host: str, tak_port: int):
         logger.debug(f"Sent CoT message via UDP: {cot_xml}")
     except Exception as e:
         logger.error(f"Error sending CoT message via UDP: {e}")
+
 
 def send_to_tak_udp_multicast(cot_xml: bytes, multicast_address: str, multicast_port: int):
     """Sends a CoT XML message to a multicast address via UDP."""
@@ -237,6 +244,7 @@ def send_to_tak_udp_multicast(cot_xml: bytes, multicast_address: str, multicast_
     except Exception as e:
         logger.error(f"Error sending CoT message via multicast: {e}")
 
+
 def parse_float(value) -> float:
     """Parses a value to a float, handling different data types."""
     try:
@@ -245,6 +253,7 @@ def parse_float(value) -> float:
         return float(str(value).strip())
     except (ValueError, TypeError):
         return 0.0
+
 
 class DroneManager:
     """Manages a collection of drones and handles their updates."""
@@ -284,7 +293,8 @@ class DroneManager:
 
             self.last_sent_time = current_time
 
-def zmq_to_cot(zmq_host: str, zmq_port: int, zmq_status_port: int, tak_host: Optional[str] = None,
+
+def zmq_to_cot(zmq_host: str, zmq_port: int, zmq_status_port: Optional[int], tak_host: Optional[str] = None,
                tak_port: Optional[int] = None, tak_tls_context: Optional[ssl.SSLContext] = None,
                multicast_address: Optional[str] = None, multicast_port: Optional[int] = None,
                enable_multicast: bool = False, rate_limit: float = 1.0, max_drones: int = 30):
@@ -296,13 +306,23 @@ def zmq_to_cot(zmq_host: str, zmq_port: int, zmq_status_port: int, tak_host: Opt
     telemetry_socket.setsockopt_string(zmq.SUBSCRIBE, "")
     logger.debug(f"Connected to telemetry ZMQ socket at tcp://{zmq_host}:{zmq_port}")
 
-    status_socket = context.socket(zmq.SUB)
-    status_socket.connect(f"tcp://{zmq_host}:{zmq_status_port}")
-    status_socket.setsockopt_string(zmq.SUBSCRIBE, "")
-    logger.debug(f"Connected to status ZMQ socket at tcp://{zmq_host}:{zmq_status_port}")
+    # Only create and connect the status_socket if zmq_status_port is provided
+    if zmq_status_port:
+        status_socket = context.socket(zmq.SUB)
+        status_socket.connect(f"tcp://{zmq_host}:{zmq_status_port}")
+        status_socket.setsockopt_string(zmq.SUBSCRIBE, "")
+        logger.debug(f"Connected to status ZMQ socket at tcp://{zmq_host}:{zmq_status_port}")
+    else:
+        status_socket = None
+        logger.debug("No ZMQ status port provided. Skipping status socket setup.")
 
     drone_manager = DroneManager(max_drones=max_drones, rate_limit=rate_limit)
-    tak_client = TAKClient(tak_host, tak_port, tak_tls_context) if tak_host and tak_port else None
+
+    # Initialize tak_client only if both tak_host and tak_port are valid
+    if tak_host and tak_port:
+        tak_client = TAKClient(tak_host, tak_port, tak_tls_context)
+    else:
+        tak_client = None
 
     def signal_handler(sig, frame):
         """Handles signal interruptions for graceful shutdown."""
@@ -321,7 +341,8 @@ def zmq_to_cot(zmq_host: str, zmq_port: int, zmq_status_port: int, tak_host: Opt
 
     poller = zmq.Poller()
     poller.register(telemetry_socket, zmq.POLLIN)
-    poller.register(status_socket, zmq.POLLIN)
+    if status_socket:
+        poller.register(status_socket, zmq.POLLIN)
 
     try:
         while True:
@@ -378,7 +399,7 @@ def zmq_to_cot(zmq_host: str, zmq_port: int, zmq_status_port: int, tak_host: Opt
                     )
                     drone_manager.update_or_add_drone(drone_id, drone)
 
-            if status_socket in socks and socks[status_socket] == zmq.POLLIN:
+            if status_socket and status_socket in socks and socks[status_socket] == zmq.POLLIN:
                 logger.debug("Received a message on the status socket")
                 status_message = status_socket.recv_json()
                 logger.debug(f"Received system status JSON: {status_message}")
@@ -420,8 +441,10 @@ def zmq_to_cot(zmq_host: str, zmq_port: int, zmq_status_port: int, tak_host: Opt
                     tak_client.send(cot_xml)
                 elif tak_host and tak_port:
                     send_to_tak_udp(cot_xml, tak_host, tak_port)
-                if enable_multicast and multicast_address and multicast_port:
+                elif enable_multicast and multicast_address and multicast_port:
                     send_to_tak_udp_multicast(cot_xml, multicast_address, multicast_port)
+                else:
+                    logger.debug("No TAK host/port or multicast address/port provided. Skipping sending CoT message.")
 
             drone_manager.send_updates(tak_client, tak_host, tak_port, enable_multicast, multicast_address, multicast_port)
 
@@ -429,6 +452,7 @@ def zmq_to_cot(zmq_host: str, zmq_port: int, zmq_status_port: int, tak_host: Opt
         logger.error(f"Error in main loop: {e}")
     except KeyboardInterrupt:
         signal_handler(None, None)
+
 
 def load_config(file_path: str) -> dict:
     """Load configurations from a file."""
@@ -438,6 +462,7 @@ def load_config(file_path: str) -> dict:
     if 'SETTINGS' in config:
         config_dict.update(config['SETTINGS'])
     return config_dict
+
 
 def setup_logging(debug: bool):
     """Set up logging configuration."""
@@ -453,12 +478,39 @@ def setup_logging(debug: bool):
     if not logger.handlers:
         logger.addHandler(ch)
 
+
+def get_str(value):
+    """Returns the stripped string if not empty, else None."""
+    if value is not None:
+        value = value.strip()
+        if value:
+            return value
+    return None
+
+
+def get_int(value, default=None):
+    """Safely converts a value to an integer, returning default if conversion fails."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def get_bool(value, default=False):
+    """Safely converts a value to a boolean."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ('true', 'yes', '1')
+    return default
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="ZMQ to CoT converter.")
     parser.add_argument("--config", type=str, help="Path to config file")
     parser.add_argument("--zmq-host", help="ZMQ server host")
     parser.add_argument("--zmq-port", type=int, help="ZMQ server port for telemetry")
-    parser.add_argument("--zmq-status-port", type=int, help="ZMQ server port for system status (optional)")
+    parser.add_argument("--zmq-status-port", type=int, help="ZMQ server port for system status")
     parser.add_argument("--tak-host", type=str, help="TAK server hostname or IP address (optional)")
     parser.add_argument("--tak-port", type=int, help="TAK server port (optional)")
     parser.add_argument("--tak-tls-p12", type=str, help="Path to TAK server TLS PKCS#12 file (optional)")
@@ -480,38 +532,24 @@ if __name__ == "__main__":
     setup_logging(args.debug)
     logger.info("Starting ZMQ to CoT converter with log level: %s", "DEBUG" if args.debug else "INFO")
 
-    # Function to safely get integer values from config or defaults
-    def get_int(value, default=None):
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return default
-
-    # Function to safely get boolean values from config or defaults
-    def get_bool(value, default=False):
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, str):
-            return value.lower() in ('true', 'yes', '1')
-        return default
-
     # Assign configuration values, giving precedence to command-line arguments
-    zmq_host = args.zmq_host if args.zmq_host is not None else config_values.get("zmq_host", "127.0.0.1")
+    zmq_host = args.zmq_host if args.zmq_host is not None else get_str(config_values.get("zmq_host", "127.0.0.1"))
     zmq_port = args.zmq_port if args.zmq_port is not None else get_int(config_values.get("zmq_port"), 4224)
     zmq_status_port = args.zmq_status_port if args.zmq_status_port is not None else get_int(config_values.get("zmq_status_port"), None)
-    tak_host = args.tak_host if args.tak_host is not None else config_values.get("tak_host") or None
+
+    tak_host = args.tak_host if args.tak_host is not None else get_str(config_values.get("tak_host"))
     tak_port = args.tak_port if args.tak_port is not None else get_int(config_values.get("tak_port"), None)
-    tak_tls_p12 = args.tak_tls_p12 if args.tak_tls_p12 is not None else config_values.get("tak_tls_p12")
-    tak_tls_p12_pass = args.tak_tls_p12_pass if args.tak_tls_p12_pass is not None else config_values.get("tak_tls_p12_pass")
-    tak_tls_skip_verify = args.tak_tls_skip_verify if args.tak_tls_skip_verify else get_bool(config_values.get("tak_tls_skip_verify"), False)
-    tak_multicast_addr = args.tak_multicast_addr if args.tak_multicast_addr is not None else config_values.get("tak_multicast_addr")
+
+    tak_tls_p12 = args.tak_tls_p12 if args.tak_tls_p12 is not None else get_str(config_values.get("tak_tls_p12"))
+    tak_tls_p12_pass = args.tak_tls_p12_pass if args.tak_tls_p12_pass is not None else get_str(config_values.get("tak_tls_p12_pass"))
+    tak_tls_skip_verify = args.tak_tls_skip_verify or get_bool(config_values.get("tak_tls_skip_verify"), False)
+
+    tak_multicast_addr = args.tak_multicast_addr if args.tak_multicast_addr is not None else get_str(config_values.get("tak_multicast_addr"))
     tak_multicast_port = args.tak_multicast_port if args.tak_multicast_port is not None else get_int(config_values.get("tak_multicast_port"), None)
-    enable_multicast = args.enable_multicast if args.enable_multicast else get_bool(config_values.get("enable_multicast"), False)
+    enable_multicast = args.enable_multicast or get_bool(config_values.get("enable_multicast"), False)
+
     rate_limit = args.rate_limit if args.rate_limit is not None else float(config_values.get("rate_limit", 1.0))
     max_drones = args.max_drones if args.max_drones is not None else int(config_values.get("max_drones", 30))
-
-    setup_logging(args.debug)
-    logger.info("Starting ZMQ to CoT converter with log level: %s", "DEBUG" if args.debug else "INFO")
 
     tak_tls_context = None
     if tak_tls_p12:
