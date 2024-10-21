@@ -30,7 +30,6 @@ import signal
 import logging
 import argparse
 import datetime
-import tempfile
 import time
 import configparser
 from collections import deque
@@ -47,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 class Drone:
     """Represents a drone and its telemetry data."""
-    
+
     def __init__(self, id: str, lat: float, lon: float, speed: float, vspeed: float,
                  alt: float, height: float, pilot_lat: float, pilot_lon: float, description: str):
         self.id = id
@@ -76,14 +75,26 @@ class Drone:
 
     def to_cot_xml(self) -> bytes:
         """Converts the drone's telemetry data to a Cursor-on-Target (CoT) XML message."""
-        event = etree.Element('event', version='2.0', uid=self.id, type='b-m-p-s-m',
-                              time=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-                              start=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-                              stale=(datetime.datetime.utcnow() + datetime.timedelta(minutes=10)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-                              how='m-g')
+        event = etree.Element(
+            'event',
+            version='2.0',
+            uid=self.id,
+            type='b-m-p-s-m',
+            time=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            start=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            stale=(datetime.datetime.utcnow() + datetime.timedelta(minutes=10)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            how='m-g'
+        )
 
-        point = etree.SubElement(event, 'point', lat=str(self.lat), lon=str(self.lon),
-                                 hae=str(self.alt), ce='35.0', le='999999')
+        point = etree.SubElement(
+            event,
+            'point',
+            lat=str(self.lat),
+            lon=str(self.lon),
+            hae=str(self.alt),
+            ce='35.0',
+            le='999999'
+        )
 
         detail = etree.SubElement(event, 'detail')
 
@@ -91,20 +102,27 @@ class Drone:
 
         etree.SubElement(detail, 'precisionlocation', geopointsrc='gps', altsrc='gps')
 
-        remarks_text = (f"Description: {self.description}, Speed: {self.speed} m/s, VSpeed: {self.vspeed} m/s, "
-                        f"Altitude: {self.alt} m, Height: {self.height} m, "
-                        f"Pilot Lat: {self.pilot_lat}, Pilot Lon: {self.pilot_lon}")
+        remarks_text = (
+            f"Description: {self.description}, Speed: {self.speed} m/s, VSpeed: {self.vspeed} m/s, "
+            f"Altitude: {self.alt} m, Height: {self.height} m, "
+            f"Pilot Lat: {self.pilot_lat}, Pilot Lon: {self.pilot_lon}"
+        )
         etree.SubElement(detail, 'remarks').text = remarks_text
 
         etree.SubElement(detail, 'color', argb='-256')
 
-        etree.SubElement(detail, 'usericon', iconsetpath='34ae1613-9645-4222-a9d2-e5f243dea2865/Military/UAV_quad.png')
+        etree.SubElement(
+            detail,
+            'usericon',
+            iconsetpath='34ae1613-9645-4222-a9d2-e5f243dea2865/Military/UAV_quad.png'
+        )
 
         return etree.tostring(event, pretty_print=True, xml_declaration=True, encoding='UTF-8')
 
+
 class SystemStatus:
     """Represents system status data."""
-    
+
     def __init__(self, serial_number: str, lat: float, lon: float, alt: float, remarks: str):
         self.id = f"system-{serial_number}"
         self.lat = lat
@@ -114,25 +132,53 @@ class SystemStatus:
 
     def to_cot_xml(self) -> bytes:
         """Converts the system status data to a CoT XML message."""
-        event = etree.Element('event', version='2.0', uid=self.id, type='a-f-G-U-C',
-                              time=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-                              start=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-                              stale=(datetime.datetime.utcnow() + datetime.timedelta(minutes=10)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-                              how='m-g')
+        event = etree.Element(
+            'event',
+            version='2.0',
+            uid=self.id,
+            type='a-f-G-U-C',  # Friendly Ground Unit
+            time=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            start=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            stale=(datetime.datetime.utcnow() + datetime.timedelta(minutes=10)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            how='m-g'
+        )
 
-        point = etree.SubElement(event, 'point', lat=str(self.lat), lon=str(self.lon),
-                                 hae=str(self.alt), ce='35.0', le='999999')
+        point = etree.SubElement(
+            event,
+            'point',
+            lat=str(self.lat),
+            lon=str(self.lon),
+            hae=str(self.alt),
+            ce='10.0',
+            le='10.0'
+        )
 
         detail = etree.SubElement(event, 'detail')
 
+        # Include contact information
         etree.SubElement(detail, 'contact', callsign=self.id)
 
-        # Use CDATA section to preserve formatting in remarks
+        # Include precision location
+        etree.SubElement(detail, 'precisionlocation', geopointsrc='GPS', altsrc='GPS')
+
+        # Include remarks
         remarks_element = etree.SubElement(detail, 'remarks')
         remarks_element.text = etree.CDATA(self.remarks)
 
-        return etree.tostring(event, pretty_print=True, xml_declaration=True, encoding='UTF-8')
+        # Include color (optional)
+        etree.SubElement(detail, 'color', argb='-1')  # White color
 
+        # Omit usericon to use the default dot icon
+        # Alternatively, specify a default icon if needed
+        # etree.SubElement(detail, 'usericon', iconsetpath='some/default/icon/path')
+
+        # Optionally include status
+        status = etree.SubElement(detail, 'status')
+        status.set('battery', '100')  # Placeholder value
+        status.set('readiness', 'Available')
+
+        return etree.tostring(event, pretty_print=True, xml_declaration=True, encoding='UTF-8')
+        
 class TAKClient:
     """Client for connecting to a TAK server using TLS and sending CoT messages."""
     
