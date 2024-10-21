@@ -60,6 +60,7 @@ class Drone:
         self.pilot_lat = pilot_lat
         self.pilot_lon = pilot_lon
         self.description = description
+        self.last_update_time = time.time()  # Add this line
 
     def update(self, lat: float, lon: float, speed: float, vspeed: float, alt: float,
                height: float, pilot_lat: float, pilot_lon: float, description: str):
@@ -73,17 +74,24 @@ class Drone:
         self.pilot_lat = pilot_lat
         self.pilot_lon = pilot_lon
         self.description = description
+        self.last_update_time = time.time()  # Update the last update time
 
-    def to_cot_xml(self) -> bytes:
+    def to_cot_xml(self, stale_offset: Optional[float] = None) -> bytes:
         """Converts the drone's telemetry data to a Cursor-on-Target (CoT) XML message."""
+        current_time = datetime.datetime.utcnow()
+        if stale_offset is not None:
+            stale_time = current_time + datetime.timedelta(seconds=stale_offset)
+        else:
+            stale_time = current_time + datetime.timedelta(minutes=10)
+
         event = etree.Element(
             'event',
             version='2.0',
             uid=self.id,
             type='b-m-p-s-m',
-            time=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-            start=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-            stale=(datetime.datetime.utcnow() + datetime.timedelta(minutes=10)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            time=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            start=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            stale=stale_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
             how='m-g'
         )
 
@@ -133,14 +141,17 @@ class SystemStatus:
 
     def to_cot_xml(self) -> bytes:
         """Converts the system status data to a CoT XML message."""
+        current_time = datetime.datetime.utcnow()
+        stale_time = current_time + datetime.timedelta(minutes=10)
+
         event = etree.Element(
             'event',
             version='2.0',
             uid=self.id,
             type='a-f-G-U-C',  # Friendly Ground Unit
-            time=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-            start=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-            stale=(datetime.datetime.utcnow() + datetime.timedelta(minutes=10)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            time=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            start=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            stale=stale_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
             how='m-g'
         )
 
@@ -259,10 +270,11 @@ def parse_float(value) -> float:
 class DroneManager:
     """Manages a collection of drones and handles their updates."""
 
-    def __init__(self, max_drones=30, rate_limit=1.0):
+    def __init__(self, max_drones=30, rate_limit=1.0, inactivity_timeout=60.0):
         self.drones = deque(maxlen=max_drones)
         self.drone_dict = {}
         self.rate_limit = rate_limit
+        self.inactivity_timeout = inactivity_timeout
         self.last_sent_time = 0.0
 
     def update_or_add_drone(self, drone_id, drone_data):
@@ -281,8 +293,18 @@ class DroneManager:
         """Sends updates to the TAK server or multicast address."""
         current_time = time.time()
         if current_time - self.last_sent_time >= self.rate_limit:
-            for drone_id in self.drones:
-                cot_xml = self.drone_dict[drone_id].to_cot_xml()
+            drones_to_remove = []
+            for drone_id in list(self.drones):
+                drone = self.drone_dict[drone_id]
+                time_since_update = current_time - drone.last_update_time
+                if time_since_update > self.inactivity_timeout:
+                    # Drone is inactive, remove it from tracking
+                    drones_to_remove.append(drone_id)
+                    logger.debug(f"Drone {drone_id} is inactive for {time_since_update:.2f} seconds. Removing from tracking.")
+                    continue  # Skip sending CoT for inactive drones
+
+                # Update the 'stale' time in CoT message to reflect inactivity timeout
+                cot_xml = drone.to_cot_xml(stale_offset=self.inactivity_timeout - time_since_update)
 
                 if tak_client:
                     tak_client.send(cot_xml)
@@ -292,13 +314,18 @@ class DroneManager:
                 if enable_multicast and multicast_address and multicast_port:
                     send_to_tak_udp_multicast(cot_xml, multicast_address, multicast_port)
 
+            # Remove inactive drones
+            for drone_id in drones_to_remove:
+                self.drones.remove(drone_id)
+                del self.drone_dict[drone_id]
+
             self.last_sent_time = current_time
 
 
 def zmq_to_cot(zmq_host: str, zmq_port: int, zmq_status_port: Optional[int], tak_host: Optional[str] = None,
                tak_port: Optional[int] = None, tak_tls_context: Optional[ssl.SSLContext] = None,
                multicast_address: Optional[str] = None, multicast_port: Optional[int] = None,
-               enable_multicast: bool = False, rate_limit: float = 1.0, max_drones: int = 30):
+               enable_multicast: bool = False, rate_limit: float = 1.0, max_drones: int = 30, inactivity_timeout: float = 60.0):
     """Main function to convert ZMQ messages to CoT and send to TAK server."""
 
     context = zmq.Context()
@@ -317,7 +344,7 @@ def zmq_to_cot(zmq_host: str, zmq_port: int, zmq_status_port: Optional[int], tak
         status_socket = None
         logger.debug("No ZMQ status port provided. Skipping status socket setup.")
 
-    drone_manager = DroneManager(max_drones=max_drones, rate_limit=rate_limit)
+    drone_manager = DroneManager(max_drones=max_drones, rate_limit=rate_limit, inactivity_timeout=inactivity_timeout)
 
     # Initialize tak_client only if both tak_host and tak_port are valid
     if tak_host and tak_port:
@@ -386,19 +413,33 @@ def zmq_to_cot(zmq_host: str, zmq_port: int, zmq_status_port: Optional[int], tak
 
                 if 'id' in drone_info:
                     drone_id = drone_info['id']
-                    drone = Drone(
-                        id=drone_info['id'],
-                        lat=drone_info.get('lat', 0.0),
-                        lon=drone_info.get('lon', 0.0),
-                        speed=drone_info.get('speed', 0.0),
-                        vspeed=drone_info.get('vspeed', 0.0),
-                        alt=drone_info.get('alt', 0.0),
-                        height=drone_info.get('height', 0.0),
-                        pilot_lat=drone_info.get('pilot_lat', 0.0),
-                        pilot_lon=drone_info.get('pilot_lon', 0.0),
-                        description=drone_info.get('description', "")
-                    )
-                    drone_manager.update_or_add_drone(drone_id, drone)
+                    if drone_id in drone_manager.drone_dict:
+                        drone = drone_manager.drone_dict[drone_id]
+                        drone.update(
+                            lat=drone_info.get('lat', 0.0),
+                            lon=drone_info.get('lon', 0.0),
+                            speed=drone_info.get('speed', 0.0),
+                            vspeed=drone_info.get('vspeed', 0.0),
+                            alt=drone_info.get('alt', 0.0),
+                            height=drone_info.get('height', 0.0),
+                            pilot_lat=drone_info.get('pilot_lat', 0.0),
+                            pilot_lon=drone_info.get('pilot_lon', 0.0),
+                            description=drone_info.get('description', "")
+                        )
+                    else:
+                        drone = Drone(
+                            id=drone_info['id'],
+                            lat=drone_info.get('lat', 0.0),
+                            lon=drone_info.get('lon', 0.0),
+                            speed=drone_info.get('speed', 0.0),
+                            vspeed=drone_info.get('vspeed', 0.0),
+                            alt=drone_info.get('alt', 0.0),
+                            height=drone_info.get('height', 0.0),
+                            pilot_lat=drone_info.get('pilot_lat', 0.0),
+                            pilot_lon=drone_info.get('pilot_lon', 0.0),
+                            description=drone_info.get('description', "")
+                        )
+                        drone_manager.update_or_add_drone(drone_id, drone)
 
             if status_socket and status_socket in socks and socks[status_socket] == zmq.POLLIN:
                 logger.debug("Received a message on the status socket")
@@ -497,6 +538,14 @@ def get_int(value, default=None):
         return default
 
 
+def get_float(value, default=None):
+    """Safely converts a value to a float, returning default if conversion fails."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def get_bool(value, default=False):
     """Safely converts a value to a boolean."""
     if isinstance(value, bool):
@@ -522,6 +571,7 @@ if __name__ == "__main__":
     parser.add_argument("--enable-multicast", action="store_true", help="Enable sending to multicast address")
     parser.add_argument("--rate-limit", type=float, help="Rate limit for sending CoT messages (seconds)")
     parser.add_argument("--max-drones", type=int, help="Maximum number of drones to track simultaneously")
+    parser.add_argument("--inactivity-timeout", type=float, help="Time in seconds before a drone is considered inactive")
     parser.add_argument("-d", "--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args()
 
@@ -543,61 +593,62 @@ if __name__ == "__main__":
 
     tak_tls_p12 = args.tak_tls_p12 if args.tak_tls_p12 is not None else get_str(config_values.get("tak_tls_p12"))
     tak_tls_p12_pass = args.tak_tls_p12_pass if args.tak_tls_p12_pass is not None else get_str(config_values.get("tak_tls_p12_pass"))
-    tak_tls_skip_verify = args.tak_tls_skip_verify or get_bool(config_values.get("tak_tls_skip_verify"), False)
+    tak_tls_skip_verify = args.tak_tls_skip_verify if args.tak_tls_skip_verify else get_bool(config_values.get("tak_tls_skip_verify"), False)
 
     tak_multicast_addr = args.tak_multicast_addr if args.tak_multicast_addr is not None else get_str(config_values.get("tak_multicast_addr"))
     tak_multicast_port = args.tak_multicast_port if args.tak_multicast_port is not None else get_int(config_values.get("tak_multicast_port"), None)
     enable_multicast = args.enable_multicast or get_bool(config_values.get("enable_multicast"), False)
 
-    rate_limit = args.rate_limit if args.rate_limit is not None else float(config_values.get("rate_limit", 1.0))
-    max_drones = args.max_drones if args.max_drones is not None else int(config_values.get("max_drones", 30))
+    rate_limit = args.rate_limit if args.rate_limit is not None else get_float(config_values.get("rate_limit", 1.0))
+    max_drones = args.max_drones if args.max_drones is not None else get_int(config_values.get("max_drones", 30))
+    inactivity_timeout = args.inactivity_timeout if args.inactivity_timeout is not None else get_float(config_values.get("inactivity_timeout", 60.0))
 
     tak_tls_context = None
 
-if tak_tls_p12:
-    try:
-        with open(tak_tls_p12, 'rb') as p12_file:
-            p12_data = p12_file.read()
-    except OSError as err:
-        logger.critical("Failed to read TAK server TLS PKCS#12 file: %s.", err)
-        exit(1)
+    if tak_tls_p12:
+        try:
+            with open(tak_tls_p12, 'rb') as p12_file:
+                p12_data = p12_file.read()
+        except OSError as err:
+            logger.critical("Failed to read TAK server TLS PKCS#12 file: %s.", err)
+            exit(1)
 
-    p12_pass = None
-    pem_encryption = cryptography.hazmat.primitives.serialization.NoEncryption()
-    if tak_tls_p12_pass:
-        p12_pass = tak_tls_p12_pass.encode()
-        pem_encryption = cryptography.hazmat.primitives.serialization.BestAvailableEncryption(p12_pass)
+        p12_pass = None
+        pem_encryption = cryptography.hazmat.primitives.serialization.NoEncryption()
+        if tak_tls_p12_pass:
+            p12_pass = tak_tls_p12_pass.encode()
+            pem_encryption = cryptography.hazmat.primitives.serialization.BestAvailableEncryption(p12_pass)
 
-    try:
-        key, cert, more_certs = cryptography.hazmat.primitives.serialization.pkcs12.load_key_and_certificates(p12_data, p12_pass)
-    except Exception as err:
-        logger.critical("Failed to load TAK server TLS PKCS#12: %s.", err)
-        exit(1)
+        try:
+            key, cert, more_certs = cryptography.hazmat.primitives.serialization.pkcs12.load_key_and_certificates(p12_data, p12_pass)
+        except Exception as err:
+            logger.critical("Failed to load TAK server TLS PKCS#12: %s.", err)
+            exit(1)
 
-    key_bytes = key.private_bytes(
-        cryptography.hazmat.primitives.serialization.Encoding.PEM,
-        cryptography.hazmat.primitives.serialization.PrivateFormat.TraditionalOpenSSL,
-        pem_encryption
-    )
-    cert_bytes = cert.public_bytes(cryptography.hazmat.primitives.serialization.Encoding.PEM)
-    ca_bytes = b"".join(
-        cert.public_bytes(cryptography.hazmat.primitives.serialization.Encoding.PEM) for cert in more_certs
-    )
+        key_bytes = key.private_bytes(
+            cryptography.hazmat.primitives.serialization.Encoding.PEM,
+            cryptography.hazmat.primitives.serialization.PrivateFormat.TraditionalOpenSSL,
+            pem_encryption
+        )
+        cert_bytes = cert.public_bytes(cryptography.hazmat.primitives.serialization.Encoding.PEM)
+        ca_bytes = b"".join(
+            cert.public_bytes(cryptography.hazmat.primitives.serialization.Encoding.PEM) for cert in more_certs
+        )
 
-    with tempfile.NamedTemporaryFile(delete=False) as key_file, \
-            tempfile.NamedTemporaryFile(delete=False) as cert_file, \
-            tempfile.NamedTemporaryFile(delete=False) as ca_file:
-        key_file.write(key_bytes)
-        cert_file.write(cert_bytes)
-        ca_file.write(ca_bytes)
+        with tempfile.NamedTemporaryFile(delete=False) as key_file, \
+                tempfile.NamedTemporaryFile(delete=False) as cert_file, \
+                tempfile.NamedTemporaryFile(delete=False) as ca_file:
+            key_file.write(key_bytes)
+            cert_file.write(cert_bytes)
+            ca_file.write(ca_bytes)
 
-    tak_tls_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-    tak_tls_context.load_cert_chain(certfile=cert_file.name, keyfile=key_file.name, password=p12_pass)
-    if len(ca_bytes) > 0:
-        tak_tls_context.load_verify_locations(cafile=ca_file.name)
-    if tak_tls_skip_verify:
-        tak_tls_context.check_hostname = False
-        tak_tls_context.verify_mode = ssl.CERT_NONE
-        
+        tak_tls_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+        tak_tls_context.load_cert_chain(certfile=cert_file.name, keyfile=key_file.name, password=p12_pass)
+        if len(ca_bytes) > 0:
+            tak_tls_context.load_verify_locations(cafile=ca_file.name)
+        if tak_tls_skip_verify:
+            tak_tls_context.check_hostname = False
+            tak_tls_context.verify_mode = ssl.CERT_NONE
+
     zmq_to_cot(zmq_host, zmq_port, zmq_status_port, tak_host, tak_port, tak_tls_context, tak_multicast_addr,
-               tak_multicast_port, enable_multicast, rate_limit, max_drones)
+               tak_multicast_port, enable_multicast, rate_limit, max_drones, inactivity_timeout)
