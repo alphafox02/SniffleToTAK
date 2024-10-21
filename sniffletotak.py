@@ -162,7 +162,7 @@ class SystemStatus:
         etree.SubElement(detail, 'precisionlocation', geopointsrc='gps', altsrc='gps')
 
         # Include remarks
-         etree.SubElement(detail, 'remarks').text = remarks_text
+        etree.SubElement(detail, 'remarks').text = remarks_text
 
         # Include color (optional)
         etree.SubElement(detail, 'color', argb='-1')  # White color
