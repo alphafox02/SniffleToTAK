@@ -147,7 +147,7 @@ class SystemStatus:
         temperature: float = 0.0,
         uptime: float = 0.0,
     ):
-        self.id = f"system-{serial_number}"
+        self.id = f"wardragon-{serial_number}"
         self.lat = lat
         self.lon = lon
         self.alt = alt
