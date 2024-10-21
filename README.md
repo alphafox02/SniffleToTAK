@@ -5,7 +5,8 @@ SniffleToTAK is a proxy tool that bridges the gap between the Sniffle Bluetooth 
 
 ## Features
 
-- Leverages the DroneID [DroneID GitHub](https://github.com/bkerler/DroneID).
+- Leverages DroneID [DroneID GitHub](https://github.com/bkerler/DroneID).
+- Leverages WarDragon System Monitor (optional) [WarDragon System Monitor GitHub](https://github.com/alphafox02/WarDragon_System_Monitor).
 - Supports ZeroMQ (ZMQ) for data transmission.
 - Converts ZMQ messages to Cursor on Target (CoT) format.
 - Provides integration with ATAK devices for Bluetooth Remote ID drone detection and monitoring.
@@ -18,7 +19,7 @@ SniffleToTAK is a proxy tool that bridges the gap between the Sniffle Bluetooth 
 
 ## Setup and Usage
 
-### Clone the Sniffle Fork
+### Clone DroneID
 
 ```sh
 git clone https://github.com/bkerler/DroneID
