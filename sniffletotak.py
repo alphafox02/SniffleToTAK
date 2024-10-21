@@ -41,6 +41,7 @@ import zmq
 from lxml import etree
 import cryptography.hazmat.primitives.serialization
 import cryptography.hazmat.primitives.serialization.pkcs12
+import xml.sax.saxutils
 
 # Setup logging
 logger = logging.getLogger(__name__)
@@ -132,15 +133,35 @@ class Drone:
 class SystemStatus:
     """Represents system status data."""
 
-    def __init__(self, serial_number: str, lat: float, lon: float, alt: float, remarks: str):
+    def __init__(
+        self,
+        serial_number: str,
+        lat: float,
+        lon: float,
+        alt: float,
+        cpu_usage: float = 0.0,
+        memory_total: float = 0.0,
+        memory_available: float = 0.0,
+        disk_total: float = 0.0,
+        disk_used: float = 0.0,
+        temperature: float = 0.0,
+        uptime: float = 0.0,
+    ):
         self.id = f"system-{serial_number}"
         self.lat = lat
         self.lon = lon
         self.alt = alt
-        self.remarks = remarks
+        self.cpu_usage = cpu_usage
+        self.memory_total = memory_total
+        self.memory_available = memory_available
+        self.disk_total = disk_total
+        self.disk_used = disk_used
+        self.temperature = temperature
+        self.uptime = uptime
+        self.last_update_time = time.time()
 
     def to_cot_xml(self) -> bytes:
-        """Converts the system status data to a CoT XML message."""
+        """Converts the system status data to a Cursor-on-Target (CoT) XML message."""
         current_time = datetime.datetime.utcnow()
         stale_time = current_time + datetime.timedelta(minutes=10)
 
@@ -162,41 +183,41 @@ class SystemStatus:
             lon=str(self.lon),
             hae=str(self.alt),
             ce='35.0',
-            le='35.0'
+            le='999999'
         )
 
         detail = etree.SubElement(event, 'detail')
 
         # Include contact information
-        etree.SubElement(detail, 'contact', callsign=self.id)
-
-        # Include remarks early in the detail element
-        remarks_element = etree.SubElement(detail, 'remarks')
-        remarks_element.text = etree.CDATA(self.remarks)
-
-        # Include UID with Droid attribute
-        etree.SubElement(detail, 'uid', Droid=self.id)
-
-        # Include group information
-        etree.SubElement(detail, '__group', name='CIV', role='Team Member')
+        etree.SubElement(detail, 'contact', endpoint='', phone='', callsign=self.id)
 
         # Include precision location
-        etree.SubElement(detail, 'precisionlocation', geopointsrc='GPS', altsrc='GPS')
+        etree.SubElement(detail, 'precisionlocation', geopointsrc='gps', altsrc='gps')
 
-        # Include status
+        # Format remarks with system statistics
+        remarks_text = (
+            f"CPU Usage: {self.cpu_usage}%, "
+            f"Memory Total: {self.memory_total:.2f} MB, Memory Available: {self.memory_available:.2f} MB, "
+            f"Disk Total: {self.disk_total:.2f} MB, Disk Used: {self.disk_used:.2f} MB, "
+            f"Temperature: {self.temperature}°C, "
+            f"Uptime: {self.uptime} seconds"
+        )
+
+        # Escape special characters in remarks
+        remarks_text = xml.sax.saxutils.escape(remarks_text)
+
+        etree.SubElement(detail, 'remarks').text = remarks_text
+
+        # Include color
+        etree.SubElement(detail, 'color', argb='-256')
+
+        # Optionally include status
         status = etree.SubElement(detail, 'status')
-        status.set('battery', '100')
+        status.set('battery', '100')  # Placeholder value
         status.set('readiness', 'Available')
-
-        # Include TAK version info
-        etree.SubElement(detail, 'takv', device='PythonScript', platform='Python', os='Linux', version='1.0')
 
         # Include track info
         etree.SubElement(detail, 'track', speed='0', course='0')
-
-        # Include color and icon
-        etree.SubElement(detail, 'color', argb='-256')
-        # Omit usericon to use the default dot icon
 
         return etree.tostring(event, pretty_print=True, xml_declaration=True, encoding='UTF-8')
 
@@ -268,14 +289,12 @@ def send_to_tak_udp_multicast(cot_xml: bytes, multicast_address: str, multicast_
         logger.error(f"Error sending CoT message via multicast: {e}")
 
 
-def parse_float(value) -> float:
-    """Parses a value to a float, handling different data types."""
+def parse_float(value, default=0.0) -> float:
+    """Safely converts a value to a float, returning default if conversion fails."""
     try:
-        if isinstance(value, (float, int)):
-            return float(value)
-        return float(str(value).strip())
-    except (ValueError, TypeError):
-        return 0.0
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 class DroneManager:
@@ -414,19 +433,19 @@ def zmq_to_cot(zmq_host: str, zmq_port: int, zmq_status_port: Optional[int], tak
                         logger.debug(f"Ensured drone id with prefix: {drone_info['id']}")
 
                     if 'Location/Vector Message' in item:
-                        drone_info['lat'] = parse_float(item['Location/Vector Message'].get('latitude', "0.0"))
-                        drone_info['lon'] = parse_float(item['Location/Vector Message'].get('longitude', "0.0"))
-                        drone_info['speed'] = parse_float(item['Location/Vector Message'].get('speed', "0.0"))
-                        drone_info['vspeed'] = parse_float(item['Location/Vector Message'].get('vert_speed', "0.0"))
-                        drone_info['alt'] = parse_float(item['Location/Vector Message'].get('geodetic_altitude', "0.0"))
-                        drone_info['height'] = parse_float(item['Location/Vector Message'].get('height_agl', "0.0"))
+                        drone_info['lat'] = parse_float(item['Location/Vector Message'].get('latitude', 0.0))
+                        drone_info['lon'] = parse_float(item['Location/Vector Message'].get('longitude', 0.0))
+                        drone_info['speed'] = parse_float(item['Location/Vector Message'].get('speed', 0.0))
+                        drone_info['vspeed'] = parse_float(item['Location/Vector Message'].get('vert_speed', 0.0))
+                        drone_info['alt'] = parse_float(item['Location/Vector Message'].get('geodetic_altitude', 0.0))
+                        drone_info['height'] = parse_float(item['Location/Vector Message'].get('height_agl', 0.0))
 
                     if 'Self-ID Message' in item:
                         drone_info['description'] = item['Self-ID Message'].get('text', "")
 
                     if 'System Message' in item:
-                        drone_info['pilot_lat'] = parse_float(item['System Message'].get('latitude', "0.0"))
-                        drone_info['pilot_lon'] = parse_float(item['System Message'].get('longitude', "0.0"))
+                        drone_info['pilot_lat'] = parse_float(item['System Message'].get('latitude', 0.0))
+                        drone_info['pilot_lon'] = parse_float(item['System Message'].get('longitude', 0.0))
 
                 if 'id' in drone_info:
                     drone_id = drone_info['id']
@@ -465,33 +484,40 @@ def zmq_to_cot(zmq_host: str, zmq_port: int, zmq_status_port: Optional[int], tak
 
                 serial_number = status_message.get('serial_number', 'unknown')
                 gps_data = status_message.get('gps_data', {})
-                lat = parse_float(gps_data.get('latitude', '0.0'))
-                lon = parse_float(gps_data.get('longitude', '0.0'))
-                alt = parse_float(gps_data.get('altitude', '0.0'))
+                lat = parse_float(gps_data.get('latitude', 0.0))
+                lon = parse_float(gps_data.get('longitude', 0.0))
+                alt = parse_float(gps_data.get('altitude', 0.0))
 
                 system_stats = status_message.get('system_stats', {})
 
-                # Extract individual system statistics with labels
-                cpu_usage = system_stats.get('cpu_usage', 'N/A')
+                # Extract system statistics with defaults
+                cpu_usage = parse_float(system_stats.get('cpu_usage', 0.0))
                 memory = system_stats.get('memory', {})
-                memory_total = memory.get('total', 'N/A')
-                memory_available = memory.get('available', 'N/A')
+                memory_total = parse_float(memory.get('total', 0.0)) / (1024 * 1024)  # Convert bytes to MB
+                memory_available = parse_float(memory.get('available', 0.0)) / (1024 * 1024)
                 disk = system_stats.get('disk', {})
-                disk_total = disk.get('total', 'N/A')
-                disk_used = disk.get('used', 'N/A')
-                temperature = system_stats.get('temperature', 'N/A')
-                uptime = system_stats.get('uptime', 'N/A')
+                disk_total = parse_float(disk.get('total', 0.0)) / (1024 * 1024)  # Convert bytes to MB
+                disk_used = parse_float(disk.get('used', 0.0)) / (1024 * 1024)
+                temperature = parse_float(system_stats.get('temperature', 0.0))
+                uptime = parse_float(system_stats.get('uptime', 0.0))
 
-                # Format the remarks with labels
-                remarks = (
-                    f"CPU Usage: {cpu_usage}%\n"
-                    f"Memory Total: {memory_total} bytes, Available: {memory_available} bytes\n"
-                    f"Disk Total: {disk_total} bytes, Used: {disk_used} bytes\n"
-                    f"Temperature: {temperature}°C\n"
-                    f"Uptime: {uptime} seconds"
+                if lat == 0.0 and lon == 0.0:
+                    logger.warning("Latitude and longitude are missing or zero. Skipping CoT message.")
+                    continue  # Skip this iteration
+
+                system_status = SystemStatus(
+                    serial_number=serial_number,
+                    lat=lat,
+                    lon=lon,
+                    alt=alt,
+                    cpu_usage=cpu_usage,
+                    memory_total=memory_total,
+                    memory_available=memory_available,
+                    disk_total=disk_total,
+                    disk_used=disk_used,
+                    temperature=temperature,
+                    uptime=uptime
                 )
-
-                system_status = SystemStatus(serial_number, lat, lon, alt, remarks)
 
                 cot_xml = system_status.to_cot_xml()
 
