@@ -136,7 +136,7 @@ class SystemStatus:
             'event',
             version='2.0',
             uid=self.id,
-            type='a-f-G-U-C',  # Friendly Ground Unit
+            type='b-m-p-s-m',  # Friendly Ground Unit
             time=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
             start=datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
             stale=(datetime.datetime.utcnow() + datetime.timedelta(minutes=10)).strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
@@ -156,14 +156,13 @@ class SystemStatus:
         detail = etree.SubElement(event, 'detail')
 
         # Include contact information
-        etree.SubElement(detail, 'contact', callsign=self.id)
+        etree.SubElement(detail, 'contact', endpoint='', phone='', callsign=self.id)
 
         # Include precision location
-        etree.SubElement(detail, 'precisionlocation', geopointsrc='GPS', altsrc='GPS')
+        etree.SubElement(detail, 'precisionlocation', geopointsrc='gps', altsrc='gps')
 
         # Include remarks
-        remarks_element = etree.SubElement(detail, 'remarks')
-        remarks_element.text = etree.CDATA(self.remarks)
+         etree.SubElement(detail, 'remarks').text = remarks_text
 
         # Include color (optional)
         etree.SubElement(detail, 'color', argb='-1')  # White color
