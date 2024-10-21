@@ -161,7 +161,7 @@ class SystemStatus:
         self.last_update_time = time.time()
 
     def to_cot_xml(self) -> bytes:
-        """Converts the system status data to a Cursor-on-Target (CoT) XML message."""
+        """Converts the system status data to a CoT XML message."""
         current_time = datetime.datetime.utcnow()
         stale_time = current_time + datetime.timedelta(minutes=10)
 
@@ -169,7 +169,7 @@ class SystemStatus:
             'event',
             version='2.0',
             uid=self.id,
-            type='a-f-G-U-C',
+            type='b-m-p-s-m',  # Changed to match Drone class
             time=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
             start=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
             stale=stale_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
@@ -188,10 +188,8 @@ class SystemStatus:
 
         detail = etree.SubElement(event, 'detail')
 
-        # Include contact information
         etree.SubElement(detail, 'contact', endpoint='', phone='', callsign=self.id)
 
-        # Include precision location
         etree.SubElement(detail, 'precisionlocation', geopointsrc='gps', altsrc='gps')
 
         # Format remarks with system statistics
@@ -203,21 +201,19 @@ class SystemStatus:
             f"Uptime: {self.uptime} seconds"
         )
 
-        # Escape special characters in remarks
+        # Escape special characters
         remarks_text = xml.sax.saxutils.escape(remarks_text)
 
         etree.SubElement(detail, 'remarks').text = remarks_text
 
-        # Include color
         etree.SubElement(detail, 'color', argb='-256')
 
-        # Optionally include status
-        status = etree.SubElement(detail, 'status')
-        status.set('battery', '100')  # Placeholder value
-        status.set('readiness', 'Available')
-
-        # Include track info
-        etree.SubElement(detail, 'track', speed='0', course='0')
+        # Include usericon
+        etree.SubElement(
+            detail,
+            'usericon',
+            iconsetpath='34ae1613-9645-4222-a9d2-e5f243dea2865/Military/Ground_Vehicle.png'  # Use appropriate icon
+        )
 
         return etree.tostring(event, pretty_print=True, xml_declaration=True, encoding='UTF-8')
 
