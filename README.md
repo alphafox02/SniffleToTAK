@@ -5,7 +5,7 @@ SniffleToTAK is a proxy tool that bridges the gap between the Sniffle Bluetooth 
 
 ## Features
 
-- Leverages the Sniffle fork from [Sniffle GitHub](https://github.com/bkerler/Sniffle).
+- Leverages the DroneID [DroneID GitHub](https://github.com/bkerler/DroneID).
 - Supports ZeroMQ (ZMQ) for data transmission.
 - Converts ZMQ messages to Cursor on Target (CoT) format.
 - Provides integration with ATAK devices for Bluetooth Remote ID drone detection and monitoring.
@@ -21,36 +21,43 @@ SniffleToTAK is a proxy tool that bridges the gap between the Sniffle Bluetooth 
 ### Clone the Sniffle Fork
 
 ```sh
-git clone https://github.com/bkerler/Sniffle
-cd Sniffle
+git clone https://github.com/bkerler/DroneID
+cd DroneID
+git submodule init
+git submodule update
 ```
 
 ### Run the Sniffle Receiver
 
 ```sh
-python3 Sniffle/python_cli/sniff_receiver.py -l -e -z --zmqhost 0.0.0.0 --zmqport 12345
+python3 DroneID/python_cli/sniff_receiver.py -l -e -a -z
 ```
 
 This command configures the Sniffle dongle to look for Bluetooth 5 long range extended packets and forwards them via ZeroMQ (ZMQ).
+
+```sh
+python3 DroneID/zmq_decoder.py -z 
+``
+This starts the decoder, connects to the zmq server started by the receiver, and in turn offers decoded info over zmq on port 4224
 
 ### Start the SniffleToTAK Proxy with the Correct ZMQ Details
 
 #### Without TAK Server Information (Multicast Only)
 
 ```sh
-python3 sniffletotak.py --zmq-host 0.0.0.0 --zmq-port 12345
+python3 sniffletotak.py --zmq-host 0.0.0.0 --zmq-port 4224
 ```
 
 #### With TAK Server Information
 
 ```sh
-python3 sniffletotak.py --zmq-host 0.0.0.0 --zmq-port 12345 --tak-host <tak_host> --tak-port <tak_port>
+python3 sniffletotak.py --zmq-host 0.0.0.0 --zmq-port 4224 --tak-host <tak_host> --tak-port <tak_port>
 ```
 
 #### Enable Debug Logging
 
 ```sh
-python3 sniffletotak.py --zmq-host 0.0.0.0 --zmq-port 12345 -d
+python3 sniffletotak.py --zmq-host 0.0.0.0 --zmq-port 4224 -d
 ```
 
 Replace `<tak_host>` and `<tak_port>` with the appropriate values for your setup.
@@ -68,10 +75,10 @@ Ensure that your ATAK device is connected to the same network as the machine run
 
 ## Example Command
 
-To start the SniffleToTAK application with ZMQ server running on `127.0.0.1` port `12345`, sending multicast to ATAK:
+To start the SniffleToTAK application with ZMQ server running on `127.0.0.1` port `4224`, sending multicast to ATAK:
 
 ```sh
-python3 sniffletotak.py --zmq-host 127.0.0.1 --zmq-port 12345
+python3 sniffletotak.py --zmq-host 127.0.0.1 --zmq-port 4224
 ```
 
 ## Troubleshooting
