@@ -149,8 +149,8 @@ class SystemStatus:
             lat=str(self.lat),
             lon=str(self.lon),
             hae=str(self.alt),
-            ce='10.0',
-            le='10.0'
+            ce='35.0',
+            le='999999'
         )
 
         detail = etree.SubElement(event, 'detail')
@@ -173,11 +173,6 @@ class SystemStatus:
         # Omit usericon to use the default dot icon
         # Alternatively, specify a default icon if needed
         # etree.SubElement(detail, 'usericon', iconsetpath='some/default/icon/path')
-
-        # Optionally include status
-        status = etree.SubElement(detail, 'status')
-        status.set('battery', '100')  # Placeholder value
-        status.set('readiness', 'Available')
 
         return etree.tostring(event, pretty_print=True, xml_declaration=True, encoding='UTF-8')
         
