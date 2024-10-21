@@ -77,56 +77,56 @@ class Drone:
         self.last_update_time = time.time()
 
     def to_cot_xml(self, stale_offset: Optional[float] = None) -> bytes:
-            """Converts the drone's telemetry data to a Cursor-on-Target (CoT) XML message."""
-            current_time = datetime.datetime.utcnow()
-            if stale_offset is not None:
-                stale_time = current_time + datetime.timedelta(seconds=stale_offset)
-            else:
-                stale_time = current_time + datetime.timedelta(minutes=10)
+        """Converts the drone's telemetry data to a Cursor-on-Target (CoT) XML message."""
+        current_time = datetime.datetime.utcnow()
+        if stale_offset is not None:
+            stale_time = current_time + datetime.timedelta(seconds=stale_offset)
+        else:
+            stale_time = current_time + datetime.timedelta(minutes=10)
 
-            event = etree.Element(
-                'event',
-                version='2.0',
-                uid=self.id,
-                type='b-m-p-s-m',
-                time=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-                start=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-                stale=stale_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-                how='m-g'
-            )
+        event = etree.Element(
+            'event',
+            version='2.0',
+            uid=self.id,
+            type='b-m-p-s-m',
+            time=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            start=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            stale=stale_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            how='m-g'
+        )
 
-            point = etree.SubElement(
-                event,
-                'point',
-                lat=str(self.lat),
-                lon=str(self.lon),
-                hae=str(self.alt),
-                ce='35.0',
-                le='999999'
-            )
+        point = etree.SubElement(
+            event,
+            'point',
+            lat=str(self.lat),
+            lon=str(self.lon),
+            hae=str(self.alt),
+            ce='35.0',
+            le='999999'
+        )
 
-            detail = etree.SubElement(event, 'detail')
+        detail = etree.SubElement(event, 'detail')
 
-            etree.SubElement(detail, 'contact', endpoint='', phone='', callsign=self.id)
+        etree.SubElement(detail, 'contact', endpoint='', phone='', callsign=self.id)
 
-            etree.SubElement(detail, 'precisionlocation', geopointsrc='gps', altsrc='gps')
+        etree.SubElement(detail, 'precisionlocation', geopointsrc='gps', altsrc='gps')
 
-            remarks_text = (
-                f"Description: {self.description}, Speed: {self.speed} m/s, VSpeed: {self.vspeed} m/s, "
-                f"Altitude: {self.alt} m, Height: {self.height} m, "
-                f"Pilot Lat: {self.pilot_lat}, Pilot Lon: {self.pilot_lon}"
-            )
-            etree.SubElement(detail, 'remarks').text = remarks_text
+        remarks_text = (
+            f"Description: {self.description}, Speed: {self.speed} m/s, VSpeed: {self.vspeed} m/s, "
+            f"Altitude: {self.alt} m, Height: {self.height} m, "
+            f"Pilot Lat: {self.pilot_lat}, Pilot Lon: {self.pilot_lon}"
+        )
+        etree.SubElement(detail, 'remarks').text = remarks_text
 
-            etree.SubElement(detail, 'color', argb='-256')
+        etree.SubElement(detail, 'color', argb='-256')
 
-            etree.SubElement(
-                detail,
-                'usericon',
-                iconsetpath='34ae1613-9645-4222-a9d2-e5f243dea2865/Military/UAV_quad.png'
-            )
+        etree.SubElement(
+            detail,
+            'usericon',
+            iconsetpath='34ae1613-9645-4222-a9d2-e5f243dea2865/Military/UAV_quad.png'
+        )
 
-            return etree.tostring(event, pretty_print=True, xml_declaration=True, encoding='UTF-8')
+        return etree.tostring(event, pretty_print=True, xml_declaration=True, encoding='UTF-8')
 
 
 class SystemStatus:
@@ -140,70 +140,70 @@ class SystemStatus:
         self.remarks = remarks
 
     def to_cot_xml(self) -> bytes:
-    """Converts the system status data to a CoT XML message."""
-    current_time = datetime.datetime.utcnow()
-    stale_time = current_time + datetime.timedelta(minutes=10)
+        """Converts the system status data to a CoT XML message."""
+        current_time = datetime.datetime.utcnow()
+        stale_time = current_time + datetime.timedelta(minutes=10)
 
-    event = etree.Element(
-        'event',
-        version='2.0',
-        uid=self.id,
-        type='a-f-G-U-C',
-        time=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-        start=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-        stale=stale_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
-        how='m-g'
-    )
+        event = etree.Element(
+            'event',
+            version='2.0',
+            uid=self.id,
+            type='a-f-G-U-C',
+            time=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            start=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            stale=stale_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
+            how='m-g'
+        )
 
-    # Use a valid altitude or a placeholder if not available
-    hae_value = str(self.alt) if self.alt > 0 else '999999'
+        # Use a valid altitude or a placeholder if not available
+        hae_value = str(self.alt) if self.alt > 0 else '999999'
 
-    point = etree.SubElement(
-        event,
-        'point',
-        lat=str(self.lat),
-        lon=str(self.lon),
-        hae=hae_value,
-        ce='35.0',
-        le='999999'
-    )
+        point = etree.SubElement(
+            event,
+            'point',
+            lat=str(self.lat),
+            lon=str(self.lon),
+            hae=hae_value,
+            ce='35.0',
+            le='999999'
+        )
 
-    detail = etree.SubElement(event, 'detail')
+        detail = etree.SubElement(event, 'detail')
 
-    # Include remarks early in the detail element
-    remarks_element = etree.SubElement(detail, 'remarks')
-    # Wrap remarks text in CDATA
-    remarks_text = etree.CDATA(self.remarks)
-    remarks_element.text = remarks_text
+        # Include remarks early in the detail element
+        remarks_element = etree.SubElement(detail, 'remarks')
+        # Wrap remarks text in CDATA
+        remarks_text = etree.CDATA(self.remarks)
+        remarks_element.text = remarks_text
 
-    # Contact info
-    etree.SubElement(detail, 'contact', endpoint='', phone='', callsign=self.id)
+        # Contact info
+        etree.SubElement(detail, 'contact', endpoint='', phone='', callsign=self.id)
 
-    # UID with Droid attribute
-    etree.SubElement(detail, 'uid', Droid=self.id)
+        # UID with Droid attribute
+        etree.SubElement(detail, 'uid', Droid=self.id)
 
-    # Group info
-    etree.SubElement(detail, '__group', name='CIV', role='Team Member')
+        # Group info
+        etree.SubElement(detail, '__group', name='CIV', role='Team Member')
 
-    # Precision location
-    etree.SubElement(detail, 'precisionlocation', geopointsrc='GPS', altsrc='GPS')
+        # Precision location
+        etree.SubElement(detail, 'precisionlocation', geopointsrc='GPS', altsrc='GPS')
 
-    # Status
-    status = etree.SubElement(detail, 'status')
-    status.set('battery', '100')
-    status.set('readiness', 'Available')
+        # Status
+        status = etree.SubElement(detail, 'status')
+        status.set('battery', '100')
+        status.set('readiness', 'Available')
 
-    # TAK version info
-    etree.SubElement(detail, 'takv', device='PythonScript', platform='Python', os='Linux', version='1.0')
+        # TAK version info
+        etree.SubElement(detail, 'takv', device='PythonScript', platform='Python', os='Linux', version='1.0')
 
-    # Track info
-    etree.SubElement(detail, 'track', speed='0', course='0')
+        # Track info
+        etree.SubElement(detail, 'track', speed='0', course='0')
 
-    # Color and icon
-    etree.SubElement(detail, 'color', argb='-256')
-    etree.SubElement(detail, 'usericon', iconsetpath='-256')
+        # Color and icon
+        etree.SubElement(detail, 'color', argb='-256')
+        etree.SubElement(detail, 'usericon', iconsetpath='-256')
 
-    return etree.tostring(event, pretty_print=True, xml_declaration=True, encoding='UTF-8')
+        return etree.tostring(event, pretty_print=True, xml_declaration=True, encoding='UTF-8')
 
 
 class TAKClient:
