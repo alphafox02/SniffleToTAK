@@ -140,7 +140,7 @@ class SystemStatus:
         self.remarks = remarks
 
     def to_cot_xml(self) -> bytes:
-        """Converts the system status data to a CoT XML message."""
+        """Converts the system status data to a Cursor-on-Target (CoT) XML message."""
         current_time = datetime.datetime.utcnow()
         stale_time = current_time + datetime.timedelta(minutes=10)
 
@@ -148,7 +148,7 @@ class SystemStatus:
             'event',
             version='2.0',
             uid=self.id,
-            type='a-f-G-U-C',
+            type='a-f-G-U-C',  # Friendly Ground Unit
             time=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
             start=current_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
             stale=stale_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ'),
@@ -164,33 +164,24 @@ class SystemStatus:
             lat=str(self.lat),
             lon=str(self.lon),
             hae=hae_value,
-            ce='35.0',
-            le='999999'
+            ce='9999999.0',
+            le='9999999.0'
         )
 
         detail = etree.SubElement(event, 'detail')
 
-        # Include remarks early in the detail element
-        remarks_element = etree.SubElement(detail, 'remarks')
-        # Wrap remarks text in CDATA
-        remarks_text = etree.CDATA(self.remarks)
-        remarks_element.text = remarks_text
-
-        # Contact info
-        etree.SubElement(detail, 'contact', endpoint='', phone='', callsign=self.id)
+        # Contact information
+        etree.SubElement(detail, 'contact', callsign=self.id)
 
         # UID with Droid attribute
         etree.SubElement(detail, 'uid', Droid=self.id)
-
-        # Group info
-        etree.SubElement(detail, '__group', name='CIV', role='Team Member')
 
         # Precision location
         etree.SubElement(detail, 'precisionlocation', geopointsrc='GPS', altsrc='GPS')
 
         # Status
         status = etree.SubElement(detail, 'status')
-        status.set('battery', '100')
+        status.set('battery', '100')  # Placeholder value
         status.set('readiness', 'Available')
 
         # TAK version info
@@ -202,6 +193,10 @@ class SystemStatus:
         # Color and icon
         etree.SubElement(detail, 'color', argb='-256')
         etree.SubElement(detail, 'usericon', iconsetpath='-256')
+
+        # Remarks
+        remarks_element = etree.SubElement(detail, 'remarks')
+        remarks_element.text = self.remarks  # Assign remarks text directly
 
         return etree.tostring(event, pretty_print=True, xml_declaration=True, encoding='UTF-8')
 
