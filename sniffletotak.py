@@ -554,45 +554,47 @@ if __name__ == "__main__":
     tak_tls_context = None
     
     if tak_host and tak_port:
-        if tak_tls_p12:
-            try:
-                with open(tak_tls_p12, 'rb') as p12_file:
-                    p12_data = p12_file.read()
-            except OSError as err:
-                logger.critical("Failed to read TAK server TLS PKCS#12 file: %s.", err)
-                exit(1)
+        if args.tak_tls_p12:
+        try:
+            with open(args.tak_tls_p12, 'rb') as p12_file:
+                p12_data = p12_file.read()
+        except OSError as err:
+            logger.critical("Failed to read TAK server TLS PKCS#12 file: %s.", err)
+            exit(1)
 
-            p12_pass = tak_tls_p12_pass.encode() if tak_tls_p12_pass else None
+        p12_pass = None
+        pem_encryption = cryptography.hazmat.primitives.serialization.NoEncryption()
+        if args.tak_tls_p12_pass:
+            p12_pass = args.tak_tls_p12_pass.encode()
+            pem_encryption = cryptography.hazmat.primitives.serialization.BestAvailableEncryption(p12_pass)
 
-            try:
-                key, cert, more_certs = cryptography.hazmat.primitives.serialization.pkcs12.load_key_and_certificates(
-                    p12_data, p12_pass
-                )
-            except Exception as err:
-                logger.critical("Failed to load TAK server TLS PKCS#12: %s.", err)
-                exit(1)
+        try:
+            key, cert, more_certs = cryptography.hazmat.primitives.serialization.pkcs12.load_key_and_certificates(p12_data, p12_pass)
+        except Exception as err:
+            logger.critical("Failed to load TAK server TLS PKCS#12: %s.", err)
+            exit(1)
 
-            tak_tls_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-            tak_tls_context.load_cert_chain(
-                certfile=cert.public_bytes(encoding=cryptography.hazmat.primitives.serialization.Encoding.PEM),
-                keyfile=key.private_bytes(
-                    encoding=cryptography.hazmat.primitives.serialization.Encoding.PEM,
-                    format=cryptography.hazmat.primitives.serialization.PrivateFormat.TraditionalOpenSSL,
-                    encryption_algorithm=cryptography.hazmat.primitives.serialization.NoEncryption(),
-                ),
-            )
-            if more_certs:
-                tak_tls_context.load_verify_locations(
-                    cadata=''.join(
-                        [
-                            cert.public_bytes(cryptography.hazmat.primitives.serialization.Encoding.PEM).decode('utf-8')
-                            for cert in more_certs
-                        ]
-                    )
-                )
-            if tak_tls_skip_verify:
-                tak_tls_context.check_hostname = False
-                tak_tls_context.verify_mode = ssl.CERT_NONE
+        key_bytes = key.private_bytes(cryptography.hazmat.primitives.serialization.Encoding.PEM,
+                                      cryptography.hazmat.primitives.serialization.PrivateFormat.TraditionalOpenSSL,
+                                      pem_encryption)
+        cert_bytes = cert.public_bytes(cryptography.hazmat.primitives.serialization.Encoding.PEM)
+        ca_bytes = b"".join(cert.public_bytes(cryptography.hazmat.primitives.serialization.Encoding.PEM) for cert in more_certs)
+
+        with tempfile.NamedTemporaryFile(delete=False) as key_file, \
+                tempfile.NamedTemporaryFile(delete=False) as cert_file, \
+                tempfile.NamedTemporaryFile(delete=False) as ca_file:
+            key_file.write(key_bytes)
+            cert_file.write(cert_bytes)
+            ca_file.write(ca_bytes)
+
+        tak_tls_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+        tak_tls_context.load_cert_chain(certfile=cert_file.name, keyfile=key_file.name, password=p12_pass)
+        if len(ca_bytes) > 0:
+            tak_tls_context.load_verify_locations(cafile=ca_file.name)
+        if args.tak_tls_skip_verify:
+            tak_tls_context.check_hostname = False
+            tak_tls_context.verify_mode = ssl.VerifyMode.CERT_NONE
+            
         else:
             tak_tls_context = None
     else:
