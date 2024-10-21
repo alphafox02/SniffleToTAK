@@ -1,0 +1,12 @@
+[Unit]
+Description=WarDragon System Monitor Service
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/python3 /home/dragon/WarDragon/WarDragon_System_Monitor/system_monitor.py --interval 30
+Restart=always
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target
