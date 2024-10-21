@@ -60,7 +60,7 @@ class Drone:
         self.pilot_lat = pilot_lat
         self.pilot_lon = pilot_lon
         self.description = description
-        self.last_update_time = time.time()  # Add this line
+        self.last_update_time = time.time()
 
     def update(self, lat: float, lon: float, speed: float, vspeed: float, alt: float,
                height: float, pilot_lat: float, pilot_lon: float, description: str):
@@ -74,7 +74,7 @@ class Drone:
         self.pilot_lat = pilot_lat
         self.pilot_lon = pilot_lon
         self.description = description
-        self.last_update_time = time.time()  # Update the last update time
+        self.last_update_time = time.time()
 
     def to_cot_xml(self, stale_offset: Optional[float] = None) -> bytes:
         """Converts the drone's telemetry data to a Cursor-on-Target (CoT) XML message."""
@@ -298,21 +298,16 @@ class DroneManager:
                 drone = self.drone_dict[drone_id]
                 time_since_update = current_time - drone.last_update_time
                 if time_since_update > self.inactivity_timeout:
-                    # Drone is inactive, remove it from tracking
+                    # Drone is inactive, send a final CoT message with stale time set to now
+                    cot_xml = drone.to_cot_xml(stale_offset=0)  # Set stale time to current time
+                    self.send_cot_message(cot_xml, tak_client, tak_host, tak_port, enable_multicast, multicast_address, multicast_port)
                     drones_to_remove.append(drone_id)
-                    logger.debug(f"Drone {drone_id} is inactive for {time_since_update:.2f} seconds. Removing from tracking.")
-                    continue  # Skip sending CoT for inactive drones
+                    logger.debug(f"Drone {drone_id} is inactive for {time_since_update:.2f} seconds. Sent final CoT message and removing from tracking.")
+                    continue  # Skip sending regular CoT message for inactive drones
 
                 # Update the 'stale' time in CoT message to reflect inactivity timeout
                 cot_xml = drone.to_cot_xml(stale_offset=self.inactivity_timeout - time_since_update)
-
-                if tak_client:
-                    tak_client.send(cot_xml)
-                elif tak_host and tak_port:
-                    send_to_tak_udp(cot_xml, tak_host, tak_port)
-
-                if enable_multicast and multicast_address and multicast_port:
-                    send_to_tak_udp_multicast(cot_xml, multicast_address, multicast_port)
+                self.send_cot_message(cot_xml, tak_client, tak_host, tak_port, enable_multicast, multicast_address, multicast_port)
 
             # Remove inactive drones
             for drone_id in drones_to_remove:
@@ -320,6 +315,17 @@ class DroneManager:
                 del self.drone_dict[drone_id]
 
             self.last_sent_time = current_time
+
+    def send_cot_message(self, cot_xml: bytes, tak_client: Optional[TAKClient], tak_host: Optional[str], tak_port: Optional[int],
+                         enable_multicast: bool, multicast_address: Optional[str], multicast_port: Optional[int]):
+        """Helper method to send CoT messages to TAK client or multicast address."""
+        if tak_client:
+            tak_client.send(cot_xml)
+        elif tak_host and tak_port:
+            send_to_tak_udp(cot_xml, tak_host, tak_port)
+
+        if enable_multicast and multicast_address and multicast_port:
+            send_to_tak_udp_multicast(cot_xml, multicast_address, multicast_port)
 
 
 def zmq_to_cot(zmq_host: str, zmq_port: int, zmq_status_port: Optional[int], tak_host: Optional[str] = None,
