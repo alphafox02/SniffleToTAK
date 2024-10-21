@@ -161,9 +161,11 @@ class SystemStatus:
         # Include precision location
         etree.SubElement(detail, 'precisionlocation', geopointsrc='gps', altsrc='gps')
 
-        # Include remarks
+         # Include remarks without CDATA
         remarks_element = etree.SubElement(detail, 'remarks')
-        remarks_element.text = etree.CDATA(self.remarks)
+        # Clean the remarks text to ensure it's XML-safe
+        safe_remarks = etree.CDATA(self.remarks)
+        remarks_element.text = safe_remarks
 
         # Include color (optional)
         etree.SubElement(detail, 'color', argb='-1')  # White color
