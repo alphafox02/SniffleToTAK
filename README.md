@@ -1,3 +1,6 @@
+# Attention
+As of Nov 2024, the SniffleToTAK repo is out of date and has now morphed into the following repo with most recent updates being under the modular_design branch.  
+https://github.com/alphafox02/DragonSync/tree/modular_design
 
 # SniffleToTAK
 
